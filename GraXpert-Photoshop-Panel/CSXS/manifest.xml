@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<ExtensionManifest Version="7.0"
+    ExtensionBundleId="com.drmedia.graxpertps"
+    ExtensionBundleVersion="0.9.0"
+    ExtensionBundleName="GraXpert Photoshop Panel"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+    <ExtensionList>
+        <Extension Id="com.drmedia.graxpertps.panel"/>
+        <Extension Id="com.drmedia.graxpertps.gradienteditor"/>
+        <Extension Id="com.drmedia.graxpertps.neutraleditor"/>
+    </ExtensionList>
+
+    <ExecutionEnvironment>
+        <HostList>
+            <Host Name="PHXS" Version="[20.0,99.9]"/>
+        </HostList>
+        <LocaleList>
+            <Locale Code="All"/>
+        </LocaleList>
+        <RequiredRuntimeList>
+            <RequiredRuntime Name="CSXS" Version="6.0"/>
+        </RequiredRuntimeList>
+    </ExecutionEnvironment>
+
+    <DispatchInfoList>
+        <Extension Id="com.drmedia.graxpertps.panel">
+            <DispatchInfo>
+                <Resources>
+                    <MainPath>./client/index.html</MainPath>
+                    <ScriptPath>./host/host.jsx</ScriptPath>
+                    <CEFCommandLine>
+                        <Parameter>--enable-nodejs</Parameter>
+                        <Parameter>--mixed-context</Parameter>
+                        <Parameter>--allow-file-access</Parameter>
+                    </CEFCommandLine>
+                </Resources>
+                <Lifecycle>
+                    <AutoVisible>true</AutoVisible>
+                </Lifecycle>
+                <UI>
+                    <Type>Panel</Type>
+                    <Menu>GraXpert</Menu>
+                    <Geometry>
+                        <Size>
+                            <Width>350</Width>
+                            <Height>620</Height>
+                        </Size>
+                        <MinSize>
+                            <Width>310</Width>
+                            <Height>470</Height>
+                        </MinSize>
+                        <MaxSize>
+                            <Width>950</Width>
+                            <Height>1300</Height>
+                        </MaxSize>
+                    </Geometry>
+                </UI>
+            </DispatchInfo>
+        </Extension>
+        <Extension Id="com.drmedia.graxpertps.gradienteditor">
+            <DispatchInfo>
+                <Resources>
+                    <MainPath>./client/gradient-editor-window.html</MainPath>
+                    <CEFCommandLine>
+                        <Parameter>--enable-nodejs</Parameter>
+                        <Parameter>--mixed-context</Parameter>
+                        <Parameter>--allow-file-access</Parameter>
+                    </CEFCommandLine>
+                </Resources>
+                <Lifecycle>
+                    <AutoVisible>true</AutoVisible>
+                </Lifecycle>
+                <UI>
+                    <Type>Modeless</Type>
+                    <Geometry>
+                        <Size><Width>1100</Width><Height>800</Height></Size>
+                        <MinSize><Width>650</Width><Height>480</Height></MinSize>
+                        <MaxSize><Width>1800</Width><Height>1400</Height></MaxSize>
+                    </Geometry>
+                </UI>
+            </DispatchInfo>
+        </Extension>
+        <Extension Id="com.drmedia.graxpertps.neutraleditor">
+            <DispatchInfo>
+                <Resources>
+                    <MainPath>./client/neutral-editor-window.html</MainPath>
+                    <CEFCommandLine>
+                        <Parameter>--enable-nodejs</Parameter>
+                        <Parameter>--mixed-context</Parameter>
+                        <Parameter>--allow-file-access</Parameter>
+                    </CEFCommandLine>
+                </Resources>
+                <Lifecycle>
+                    <AutoVisible>true</AutoVisible>
+                </Lifecycle>
+                <UI>
+                    <Type>Modeless</Type>
+                    <Geometry>
+                        <Size><Width>1100</Width><Height>800</Height></Size>
+                        <MinSize><Width>650</Width><Height>480</Height></MinSize>
+                        <MaxSize><Width>1800</Width><Height>1400</Height></MaxSize>
+                    </Geometry>
+                </UI>
+            </DispatchInfo>
+        </Extension>
+    </DispatchInfoList>
+</ExtensionManifest>

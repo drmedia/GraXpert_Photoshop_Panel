@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>GraXpert</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="panel">
+  <div id="busyBanner" class="busy-banner hidden">
+    <div class="busy-title">GraXpert 처리 중</div>
+    <div class="busy-text">처리가 끝날 때까지 패널을 닫지 마세요.</div>
+  </div>
+
+  <div class="header">
+    <div>
+      <div class="title">GraXpert</div>
+      <div class="sub">Stand-alone CLI · Photoshop</div>
+    </div>
+    <button id="settingsBtn" class="badge settings-btn" type="button" title="설정" aria-label="설정" aria-pressed="false"><span class="settings-icon" aria-hidden="true">&#9881;&#65038;</span></button>
+  </div>
+
+  <div id="tabs" class="tabs">
+    <button id="tabBg" class="tab active">Background Extraction</button>
+    <button id="tabNeutral" class="tab">Color Calibration</button>
+    <button id="tabDn" class="tab">Noise Reduction</button>
+  </div>
+
+  <div id="scopeCard" class="card">
+    <div class="section-title">처리 범위</div>
+    <div class="segmented scope-grid">
+    <label class="scope-option" data-description="현재 보이는 레이어를 임시로 합성해 처리합니다. 원본 레이어는 병합되지 않습니다." title="현재 보이는 레이어를 임시로 합성해 처리합니다. 원본 레이어는 병합되지 않습니다.">
+      <input type="radio" name="scope" value="document">
+      <span>보이는 레이어</span>
+    </label>
+    <label class="scope-option" data-description="현재 선택한 레이어만 전체 프레임 크기로 처리합니다." title="현재 선택한 레이어만 전체 프레임 크기로 처리합니다.">
+      <input type="radio" name="scope" value="layer" checked>
+      <span>현재 레이어</span>
+    </label>
+    <label class="scope-option" data-description="Photoshop 선택 영역을 우선 사용하고, 없으면 현재 레이어 마스크를 사용합니다." title="Photoshop 선택 영역을 우선 사용하고, 없으면 현재 레이어 마스크를 사용합니다.">
+      <input type="radio" name="scope" value="sky">
+      <span>지정 영역</span>
+    </label>
+    </div>
+    <div id="scopeHint" class="hint scope-hint">현재 선택한 레이어만 전체 프레임 크기로 처리합니다.</div>
+  </div>
+
+  <div id="bgPanel">
+    <div id="gradientCard" class="card">
+      <div class="section-title">Gradient 방식</div>
+      <div class="segmented method-grid">
+        <label><input type="radio" name="gradientMethod" value="AI" checked><span>AI 자동</span></label>
+        <label><input type="radio" name="gradientMethod" value="sample"><span>배경 포인트</span></label>
+      </div>
+
+      <div id="gradientAdvancedBody" class="gradient-advanced-body hidden">
+        <div id="gradientSampleMethod" class="gradient-sample-method hidden">
+          <label for="gradientInterpolation">포인트 보간</label>
+          <select id="gradientInterpolation">
+            <option value="RBF" selected>RBF</option>
+            <option value="Splines">Splines</option>
+            <option value="Kriging">Kriging</option>
+          </select>
+          <div class="hint">배경 포인트 사이의 Gradient를 계산하는 방식을 선택합니다.</div>
+        </div>
+
+        <div class="spacer"></div>
+        <div class="row between">
+          <label class="section-title no-margin">Smoothing</label>
+          <span id="smoothingValue" class="big-value">0.00</span>
+        </div>
+        <input id="smoothing" type="range" min="0" max="1" step="0.01" value="0.00">
+        <div class="ticks"><span>0</span><span>0.5</span><span>1.0</span></div>
+
+        <div class="spacer"></div>
+        <div class="section-title">Correction</div>
+        <div class="segmented">
+          <label><input type="radio" name="correction" value="Subtraction" checked><span>Subtraction</span></label>
+          <label><input type="radio" name="correction" value="Division"><span>Division</span></label>
+        </div>
+
+        <label class="check">
+          <input id="saveBackground" type="checkbox">
+          <span>Background model도 저장</span>
+        </label>
+        <div class="hint">저장 위치: 내 문서 &gt; GraXpert Background Models</div>
+      </div>
+      <button id="gradientAdvancedToggle" class="advanced-toggle" type="button" aria-expanded="false">상세 설정 보기</button>
+    </div>
+  </div>
+
+  <div id="sampleCard" class="card hidden">
+    <div class="row between">
+      <div id="sampleCardTitle" class="section-title no-margin">배경 포인트</div>
+      <span id="sampleCount" class="sample-count">준비되지 않음</span>
+    </div>
+    <div class="sample-primary-actions">
+      <button id="generateSamples" class="editor-main-btn sample-window-btn">포인트 자동 생성</button>
+      <button id="openSampleWindow" class="editor-main-btn">Gradient Editor</button>
+    </div>
+
+    <div id="sampleMainDetails" class="hidden" aria-hidden="true">
+      <div id="qualityReport" class="quality-report sample-quality-summary">품질 분석 전</div>
+      <div id="sampleScopeStatus" class="sample-scope-status">Point 생성 영역: 자동 감지 전<br>결과 적용 영역: 현재 레이어 전체</div>
+
+      <div class="row between sample-option-row">
+        <label for="pointsPerRow">행당 포인트</label>
+        <input id="pointsPerRow" type="number" min="4" max="25" step="1" value="15">
+      </div>
+      <div class="hint">GraXpert 기본값 15입니다. 이미지 가로 한 줄의 Grid 포인트 수입니다.</div>
+
+      <div class="row between sample-option-row">
+        <label for="gridTolerance">Grid Tolerance</label>
+        <input id="gridTolerance" type="number" min="-2" max="10" step="0.1" value="1.0">
+      </div>
+      <div class="hint">GraXpert 기본값 1.0입니다. 높을수록 더 밝은 배경 후보를 허용합니다.</div>
+
+      <div id="selectionStatus" class="hint">Photoshop 선택 영역: 확인 전</div>
+
+        <div class="quality-preset-title">추가 품질 검사</div>
+        <div class="segmented quality-preset">
+          <label><input type="radio" name="qualityPreset" value="relaxed"><span>느슨함</span></label>
+          <label><input type="radio" name="qualityPreset" value="standard" checked><span>표준</span></label>
+          <label><input type="radio" name="qualityPreset" value="strict"><span>엄격함</span></label>
+        </div>
+
+        <div class="editor-actions">
+          <button id="autoSamples" class="small-btn">다시 자동 생성</button>
+          <button id="undoSample" class="small-btn">마지막 삭제</button>
+          <button id="clearSamples" class="small-btn">전체 삭제</button>
+        </div>
+
+        <div class="row between sample-option-row">
+          <label for="sampleSize">Sample Size</label>
+          <div class="number-with-unit">
+            <input id="sampleSize" type="number" min="2" max="200" step="1" value="25">
+            <span>px</span>
+          </div>
+        </div>
+        <div class="hint">GraXpert 기본값 25입니다. 중심에서 한쪽으로 25px, 전체 약 50×50px 영역을 계산합니다.</div>
+
+      <label class="check">
+        <input id="selectionOnly" type="checkbox">
+        <span>자동 생성을 Photoshop 선택 영역 내부로 제한</span>
+      </label>
+    </div>
+
+    <div id="samplePreviewDisplayState" class="hidden" aria-hidden="true">
+      <select id="stretchPreset">
+        <option selected>No Stretch</option>
+        <option>10% Bg, 3 sigma</option>
+        <option>15% Bg, 3 sigma</option>
+        <option>20% Bg, 3 sigma</option>
+        <option>30% Bg, 2 sigma</option>
+      </select>
+      <output id="previewSaturationValue" for="previewSaturation">1.0</output>
+      <input id="previewSaturation" type="range" min="0" max="3" step="0.1" value="1">
+    </div>
+
+    <button id="preparePreview" class="hidden" type="button">Preview 준비</button>
+    <div id="sampleEditor" class="sample-editor hidden">
+      <div id="sampleCanvasWrap" class="sample-canvas-wrap hidden">
+        <canvas id="sampleCanvas"></canvas>
+        <div id="sampleCanvasEmpty" class="sample-canvas-empty">Preview 준비 중</div>
+      </div>
+      <div id="pointQualityStatus" class="hidden">Point 품질 정보</div>
+    </div>
+  </div>
+
+  <div id="dnPanel" class="hidden">
+    <div class="card">
+      <div class="section-title">Denoise</div>
+      <div class="hint">기본 설정으로 바로 실행하거나 필요한 경우 상세 설정을 조정합니다.</div>
+      <div id="denoiseAdvancedBody" class="denoise-advanced-body hidden">
+        <div class="row between">
+          <label class="section-title no-margin">Denoise Strength</label>
+          <span id="strengthValue" class="big-value">0.50</span>
+        </div>
+        <input id="strength" type="range" min="0" max="1" step="0.01" value="0.50">
+        <div class="ticks"><span>0</span><span>0.5</span><span>1.0</span></div>
+
+        <div class="spacer"></div>
+        <div class="row between">
+          <label>Batch Size</label>
+          <select id="batchSize">
+            <option>1</option>
+            <option>2</option>
+            <option selected>4</option>
+            <option>8</option>
+            <option>16</option>
+            <option>32</option>
+          </select>
+        </div>
+        <div class="hint">VRAM이 부족하면 1~2로 낮추세요.</div>
+      </div>
+      <button id="denoiseAdvancedToggle" class="advanced-toggle" type="button" aria-expanded="false">상세 설정 보기</button>
+    </div>
+  </div>
+
+  <div id="neutralPanel" class="hidden">
+    <div id="neutralScopeCard" class="card">
+      <div class="section-title">처리 범위</div>
+      <div class="segmented neutral-scope-grid">
+        <label class="neutral-scope-option"
+          data-description="지정 영역이 있으면 배경 분석에 사용하되, 결과는 현재 레이어 전체에 적용합니다."
+          title="지정 영역이 있으면 배경 분석에 사용하되, 결과는 현재 레이어 전체에 적용합니다.">
+          <input id="neutralScopeLayer" type="radio" name="neutralScope" value="layer" checked>
+          <span>현재 레이어</span>
+        </label>
+        <label class="neutral-scope-option"
+          data-description="선택 영역 또는 현재 레이어 마스크를 분석하고, 결과 레이어에도 같은 영역 마스크를 적용합니다."
+          title="선택 영역 또는 현재 레이어 마스크를 분석하고, 결과 레이어에도 같은 영역 마스크를 적용합니다.">
+          <input id="neutralSkyOnly" type="radio" name="neutralScope" value="sky">
+          <span>지정 영역</span>
+        </label>
+      </div>
+      <div id="neutralMaskStatus" class="hint scope-hint neutral-scope-status">분석: 확인 전 · 결과: 현재 레이어 전체</div>
+    </div>
+
+    <div id="neutralCard" class="card active-stretch-card">
+      <div class="section-title">배경 중화</div>
+      <div class="hint">현재 선형 레이어의 배경을 분석해 RGB 색상 균형을 맞춥니다.</div>
+
+      <div id="neutralPointSlot"></div>
+
+      <div id="neutralEstimateStatus" class="neutral-mask-status">
+        배경 분석 후 보정 필요도와 예상 RGB 이동량을 표시합니다.
+      </div>
+
+      <div class="preview-saturation active-strength">
+        <div class="row between">
+          <label for="neutralStrength">보정 강도</label>
+          <output id="neutralStrengthValue" for="neutralStrength">100%</output>
+        </div>
+        <input id="neutralStrength" type="range" min="0" max="100" step="5" value="100">
+      </div>
+
+      <button id="neutralizeActiveLayer" class="editor-main-btn">중화 레이어 생성</button>
+
+      <div id="neutralInternalState" class="hidden" aria-hidden="true">
+        <button id="neutralAnalyze" type="button">배경 분석</button>
+        <output id="neutralSampleCount">0 usable points</output>
+        <div id="neutralAnalysisStatus">자동 분석 전</div>
+      </div>
+      <div class="hint neutral-final-hint">원본은 유지되며 결과는 현재 레이어 바로 위에 생성됩니다.</div>
+    </div>
+  </div>
+
+  <div id="runtimeCard" class="card hidden">
+    <label class="check prominent">
+      <input id="useGpu" type="checkbox" checked>
+      <span>GPU acceleration</span>
+    </label>
+
+    <div class="section-title path-title">GraXpert 실행 파일</div>
+    <div class="path-row">
+      <input id="exePath" type="text" value="GraXpert-win64.exe" spellcheck="false">
+      <button id="browsePath" class="small-btn">찾기</button>
+      <button id="savePath" class="small-btn">저장</button>
+    </div>
+    <div class="hint">PATH 미등록 시 GraXpert-win64.exe 전체 경로를 입력하세요.</div>
+  </div>
+
+  <button id="runBtn" class="run-btn">
+    <span>▶</span>
+    <span id="runText">GraXpert Gradient Removal 실행</span>
+  </button>
+
+  <div id="progressWrap" class="progress-wrap hidden">
+    <div class="progress"><div id="progressBar"></div></div>
+    <div class="progress-status-row">
+      <div id="status" class="status">준비 중</div>
+      <button id="cancelRunBtn" class="cancel-run hidden" type="button">처리 취소</button>
+    </div>
+  </div>
+
+  <div id="message" class="message"></div>
+
+  <div id="footer" class="footer">
+    <div class="footer-version">GraXpert CLI 3.0.x · v0.9.0</div>
+    <div>원본을 보존하려면 복제 문서나 복제 레이어에서 작업하는 것이 안전합니다.</div>
+  </div>
+</div>
+<script src="main.js"></script>
+</body>
+</html>
