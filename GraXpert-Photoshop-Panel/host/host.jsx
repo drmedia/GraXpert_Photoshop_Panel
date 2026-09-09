@@ -242,12 +242,13 @@ function GX_exportInput(outPath, scope, contextScope, preserve32Bit) {
 
     try {
         analysisContext = GX_analysisContext(original, contextScope || scope);
-        if (scope === "sky" || scope === "layer-sky") {
+        if (scope === "sky" || scope === "layer-sky" ||
+            (scope === "layer-auto" && (GX_hasSelection(original) || GX_activeLayerHasMask()))) {
             maskToken = GX_captureSkyMask(original);
         }
         work = original.duplicate("__GRAXPERT_TEMP__", false);
 
-        if (scope === "layer" || scope === "layer-sky") {
+        if (scope === "layer" || scope === "layer-sky" || scope === "layer-auto") {
             var target = work.activeLayer;
             // GX_showTargetPath already hides every sibling while preserving
             // the active layer and its parent groups. Never hide all layers
@@ -306,7 +307,7 @@ function GX_exportInput(outPath, scope, contextScope, preserve32Bit) {
     return result;
 }
 
-function GX_exportSamplePreview(previewPath, maskPath, maxWidth, maxHeight, scope) {
+function GX_exportSamplePreview(previewPath, maskPath, maxWidth, maxHeight, scope, fullInputPath) {
     if (app.documents.length === 0) {
         return "ERR|열려 있는 문서가 없습니다.";
     }
@@ -338,6 +339,18 @@ function GX_exportSamplePreview(previewPath, maskPath, maxWidth, maxHeight, scop
             if (previewDoc.mode !== DocumentMode.RGB) previewDoc.changeMode(ChangeMode.RGB);
         } catch (_) {}
         try { previewDoc.flatten(); } catch (_) {}
+        if (fullInputPath) {
+            try { previewDoc.bitsPerChannel = BitsPerChannelType.SIXTEEN; } catch (_) {}
+            var fullInputOptions = new TiffSaveOptions();
+            fullInputOptions.imageCompression = TIFFEncoding.NONE;
+            fullInputOptions.layers = false;
+            try { fullInputOptions.alphaChannels = false; } catch (_) {}
+            fullInputOptions.embedColorProfile = true;
+            try { fullInputOptions.byteOrder = ByteOrder.IBM; } catch (_) {}
+            try { fullInputOptions.interleaveChannels = true; } catch (_) {}
+            try { fullInputOptions.transparency = false; } catch (_) {}
+            previewDoc.saveAs(new File(fullInputPath), fullInputOptions, true, Extension.LOWERCASE);
+        }
         try { previewDoc.bitsPerChannel = BitsPerChannelType.EIGHT; } catch (_) {}
         previewDoc.resizeImage(UnitValue(previewWidth, "px"), UnitValue(previewHeight, "px"), null, ResampleMethod.BICUBICSHARPER);
 
@@ -413,9 +426,12 @@ function GX_exportSamplePreview(previewPath, maskPath, maxWidth, maxHeight, scop
 
         var docId = -1;
         try { docId = original.id; } catch (_) {}
+        var previewDocumentName = "";
+        try { previewDocumentName = original.name || ""; } catch (_) {}
         result = "OK|" + docId + "|" + originalWidth + "|" + originalHeight + "|" +
             previewWidth + "|" + previewHeight + "|" + (hasSelection ? "YES" : "NO") +
-            "|L:" + sourceLayerId + "|C:" + encodeURIComponent(analysisContext);
+            "|L:" + sourceLayerId + "|C:" + encodeURIComponent(analysisContext) +
+            "|N:" + encodeURIComponent(previewDocumentName);
     } catch (e) {
         result = "ERR|" + e.message + " (line " + e.line + ")";
     } finally {
@@ -455,6 +471,19 @@ function GX_getActiveLayerInfo() {
     }
 }
 
+function GX_getActiveContextIdentity() {
+    if (app.documents.length === 0) return "ERR|열려 있는 문서가 없습니다.";
+    try {
+        var document = app.activeDocument;
+        var layerId = -1;
+        try { layerId = document.activeLayer.id; } catch (_) {}
+        return "OK|" + document.id + "|" + layerId + "|" +
+            Math.round(document.width.as("px")) + "|" + Math.round(document.height.as("px"));
+    } catch (e) {
+        return "ERR|현재 작업 문맥 확인 실패: " + e.message + " (line " + e.line + ")";
+    }
+}
+
 function GX_findDocumentById(id) {
     try {
         for (var i = 0; i < app.documents.length; i++) {
@@ -491,7 +520,7 @@ function GX_discardMask(originalDocId, maskToken) {
     }
 }
 
-function GX_importResultById(resultPath, originalDocId, originalDocName, layerName, maskToken, anchorLayerId) {
+function GX_importResultById(resultPath, originalDocId, originalDocName, layerName, maskToken, anchorLayerId, hideImportedLayer) {
     var targetDoc = GX_findDocumentById(originalDocId);
 
     if (!targetDoc) {
@@ -553,6 +582,7 @@ function GX_importResultById(resultPath, originalDocId, originalDocName, layerNa
         if (importedLayer) targetDoc.activeLayer = importedLayer;
         targetDoc.activeLayer.name = layerName;
         if (maskToken) GX_applySkyMask(targetDoc, targetDoc.activeLayer, maskToken);
+        if (hideImportedLayer === true) importedLayer.visible = false;
 
         resultDoc.close(SaveOptions.DONOTSAVECHANGES);
         app.activeDocument = targetDoc;
@@ -564,6 +594,71 @@ function GX_importResultById(resultPath, originalDocId, originalDocName, layerNa
         try { if (importedLayer) importedLayer.remove(); } catch (_) {}
         try { GX_restoreSelectionAndRemoveMask(targetDoc, maskToken); } catch (_) {}
         return "ERR|" + e.message + " (line " + e.line + ")";
+    }
+}
+
+function GX_exportProcessedPreview(resultPath, previewPath, maxWidth, maxHeight) {
+    var previousDocument = null;
+    var resultDocument = null;
+    try {
+        try { previousDocument = app.activeDocument; } catch (_) {}
+        var sourceFile = new File(resultPath);
+        if (!sourceFile.exists) throw new Error("결과 파일이 없습니다: " + resultPath);
+        resultDocument = app.open(sourceFile);
+        try {
+            if (resultDocument.mode !== DocumentMode.RGB) resultDocument.changeMode(ChangeMode.RGB);
+        } catch (_) {}
+        var width = Math.round(resultDocument.width.as("px"));
+        var height = Math.round(resultDocument.height.as("px"));
+        var scale = Math.min(1, Number(maxWidth) / width, Number(maxHeight) / height);
+        var previewWidth = Math.max(1, Math.round(width * scale));
+        var previewHeight = Math.max(1, Math.round(height * scale));
+        if (previewWidth !== width || previewHeight !== height) {
+            resultDocument.resizeImage(
+                UnitValue(previewWidth, "px"), UnitValue(previewHeight, "px"), null,
+                ResampleMethod.BICUBICSHARPER
+            );
+        }
+        try { resultDocument.bitsPerChannel = BitsPerChannelType.EIGHT; } catch (_) {}
+        var pngOptions = new PNGSaveOptions();
+        pngOptions.interlaced = false;
+        resultDocument.saveAs(new File(previewPath), pngOptions, true, Extension.LOWERCASE);
+        resultDocument.close(SaveOptions.DONOTSAVECHANGES);
+        resultDocument = null;
+        try { if (previousDocument) app.activeDocument = previousDocument; } catch (_) {}
+        return "OK|" + previewWidth + "|" + previewHeight;
+    } catch (e) {
+        try { if (resultDocument) resultDocument.close(SaveOptions.DONOTSAVECHANGES); } catch (_) {}
+        try { if (previousDocument) app.activeDocument = previousDocument; } catch (_) {}
+        return "ERR|" + e.message + " (line " + e.line + ")";
+    }
+}
+
+function GX_validateProcessingContext(documentId, layerId, width, height, analysisContext, scope) {
+    var targetDocument = GX_findDocumentById(documentId);
+    if (!targetDocument) return "ERR|결과를 생성한 Photoshop 문서를 찾을 수 없습니다.";
+    var previousDocument = null;
+    try {
+        try { previousDocument = app.activeDocument; } catch (_) {}
+        app.activeDocument = targetDocument;
+        if (Math.round(targetDocument.width.as("px")) !== Number(width) ||
+            Math.round(targetDocument.height.as("px")) !== Number(height)) {
+            return "ERR|결과를 생성한 뒤 문서 크기가 변경되었습니다.";
+        }
+        var activeLayerId = -1;
+        try { activeLayerId = targetDocument.activeLayer.id; } catch (_) {}
+        if (Number(activeLayerId) !== Number(layerId)) {
+            return "ERR|결과를 생성한 뒤 현재 레이어가 변경되었습니다.";
+        }
+        var currentContext = GX_analysisContext(targetDocument, scope || "layer-auto");
+        if (String(currentContext) !== String(analysisContext || "")) {
+            return "ERR|결과를 생성한 뒤 Photoshop 선택 영역 또는 레이어 마스크가 변경되었습니다.";
+        }
+        return "OK";
+    } catch (e) {
+        return "ERR|작업 문맥 확인 실패: " + e.message + " (line " + e.line + ")";
+    } finally {
+        try { if (previousDocument) app.activeDocument = previousDocument; } catch (_) {}
     }
 }
 

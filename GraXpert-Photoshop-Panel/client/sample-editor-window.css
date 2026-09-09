@@ -8,7 +8,16 @@ header { display:flex; align-items:center; justify-content:space-between; gap:15
 h1 { margin:0; font-size:19px; }
 .sub, footer { color:#aaa; font-size:11px; }
 .header-actions { display:flex; align-items:center; gap:8px; }
+.zoom-controls { display:flex; align-items:center; gap:4px; }
+.zoom-controls button { height:29px; padding:0 8px; white-space:nowrap; }
+.zoom-controls output {
+  min-width:45px; color:#ddd; text-align:center; font-variant-numeric:tabular-nums;
+}
 .count { padding:6px 9px; border-radius:6px; background:#363636; font-variant-numeric:tabular-nums; }
+.grid-status {
+  padding:6px 9px; border:1px solid #80652d; border-radius:6px;
+  background:#4a3c22; color:#ffd27a; font-weight:600; white-space:nowrap;
+}
 .close-btn { background:#493333; border-color:#704747; }
 .close-btn:hover { background:#623d3d; }
 .toolbar {
@@ -29,18 +38,55 @@ button { padding:0 8px; cursor:pointer; }
 button:hover { background:#444; }
 .editor-button-group { display:flex; flex:0 0 auto; flex-wrap:nowrap; gap:6px; align-items:end; margin-left:auto; }
 .editor-button-group button { flex:0 0 auto; white-space:nowrap; }
+.result-toolbar {
+  display:flex; align-items:center; gap:7px; padding:8px;
+  border:1px solid #444; border-radius:7px; background:#303030;
+}
+.view-switch { display:flex; gap:4px; }
+.view-switch button.active { border-color:#438ee4; background:#245f9f; }
+.point-visibility {
+  display:flex; align-items:center; gap:5px; color:#ddd; white-space:nowrap; cursor:pointer;
+}
+.result-status { flex:1; min-width:120px; color:#aaa; font-size:11px; }
+.result-status.ready { color:#62d98e; }
+.result-status.error, .result-status.outdated { color:#f0b761; }
+.result-status.busy { color:#79b9ff; animation:busyPulse 1.2s ease-in-out infinite; }
+.result-generate { border-color:#3d78b8; }
+.result-generate.busy::before {
+  content:""; display:inline-block; width:11px; height:11px; margin-right:6px;
+  vertical-align:-1px; border:2px solid rgba(255,255,255,.35); border-top-color:#fff;
+  border-radius:50%; animation:busySpin .8s linear infinite;
+}
+.result-apply { border-color:#3f8f5e; background:#285b3b; }
+.result-apply:not(:disabled):hover { background:#34784d; }
+button:disabled { cursor:default; opacity:.5; }
 .saturation-label { min-width:200px; }
 .saturation-label output { color:#fff; }
 input[type="range"] { width:200px; }
 #canvasWrap {
   position:relative; flex:1; min-height:150px; overflow:auto;
-  display:flex; align-items:center; justify-content:center;
   border:1px solid #454545; border-radius:7px; background:#151515;
 }
-#sampleCanvas { display:block; cursor:crosshair; }
+#sampleCanvas { display:block; margin:auto; cursor:crosshair; }
+#sampleCanvas.panning { cursor:grabbing; }
+#sampleCanvas.point-dragging { cursor:move; }
 #emptyMessage {
   position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#777;
 }
+.result-busy-overlay {
+  position:absolute; left:50%; top:50%; z-index:3; transform:translate(-50%, -50%);
+  display:flex; min-width:280px; flex-direction:column; align-items:center; gap:8px;
+  padding:18px 24px; border:1px solid #4d78a5; border-radius:9px;
+  background:rgba(30, 38, 47, .94); color:#dcecff; box-shadow:0 8px 28px rgba(0,0,0,.5);
+  pointer-events:none; text-align:center;
+}
+.result-busy-overlay > span:last-child { color:#aebdca; font-size:11px; }
+.busy-spinner {
+  width:28px; height:28px; border:3px solid rgba(121,185,255,.25);
+  border-top-color:#79b9ff; border-radius:50%; animation:busySpin .8s linear infinite;
+}
+@keyframes busySpin { to { transform:rotate(360deg); } }
+@keyframes busyPulse { 50% { opacity:.55; } }
 footer { display:grid; grid-template-columns:auto 1fr; gap:5px 18px; align-items:center; }
 .legend { display:flex; gap:12px; }
 .good { color:#34c76a; }
@@ -51,4 +97,16 @@ footer { display:grid; grid-template-columns:auto 1fr; gap:5px 18px; align-items
 @media (max-width:850px) {
   .saturation-label { min-width:180px; }
   input[type="range"] { width:180px; }
+}
+@media (min-width:1000px) and (max-width:1300px) {
+  .toolbar { gap:4px; padding:7px; overflow-x:hidden; }
+  .toolbar label { font-size:10px; }
+  .toolbar .check { padding-bottom:8px; }
+  .preview-stretch-label select { min-width:130px; width:130px; }
+  .saturation-label { min-width:140px; }
+  input[type="range"] { width:140px; }
+  input[type="number"] { width:58px; padding:0 6px; }
+  .compact-select select { min-width:88px; width:88px; }
+  .editor-button-group { gap:4px; margin-left:0; }
+  .editor-button-group button { padding:0 6px; font-size:12px; }
 }

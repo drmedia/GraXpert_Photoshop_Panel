@@ -1,6 +1,8 @@
-GraXpert Photoshop Panel v0.9.0
+GraXpert Photoshop Panel v0.9.1
 Windows Photoshop / CEP
 ==============================================
+
+일반 사용자를 위한 단계별 안내는 USER_GUIDE_KO.txt를 참고하세요.
 
 개요
 ----
@@ -11,26 +13,32 @@ GraXpert stand-alone CLI를 Photoshop의 Legacy Extension 패널에서 실행하
 ---------
 상단 설정 아이콘을 누르면 GPU acceleration과 GraXpert 실행 파일 설정만
 표시됩니다. 다시 누르면 기존 작업 화면으로 돌아갑니다.
-작업 탭 순서는 Gradient → Neutralise → Denoise입니다.
+이번 v0.9.1 배포에서는 Background Extraction과 Noise Reduction 탭을 제공합니다.
+Color Calibration은 후속 배포를 위해 코드만 유지하며 화면에서는 숨겨져 있습니다.
 
 1. Gradient Removal
    - Gradient 방식: AI 자동 / Sample Point
    - Sample Point 보간 방식: RBF / Splines / Kriging
    - Smoothing 0.00 ~ 1.00
    - Correction: Subtraction / Division
-   - Background model 별도 저장
+   - Background Model을 선택적으로 숨김 레이어로 추가
    - GPU ON/OFF
    - Preview Canvas에서 수동 Sample Point 추가/삭제
    - Photoshop 선택 영역 내부 자동 Grid Sample
    - GraXpert와 동일한 Sample Size 설정(기본값 25, 약 50×50px 계산 영역)
+   - 처리 대상은 현재 선택한 레이어로 고정
+   - Photoshop 선택 영역 또는 현재 레이어 마스크는 Sample Point 생성 영역으로만 사용
+   - Gradient 결과는 현재 레이어 전체에 적용하며 결과 레이어 마스크를 만들지 않음
    - Gradient 결과를 처리 시작 시 선택했던 레이어 바로 위에 배치
 
-2. Denoise
+2. Noise Reduction (GraXpert Denoise)
+   - 처리 대상은 현재 선택한 레이어로 고정
+   - 결과 마스크는 Photoshop 선택 영역 → 현재 레이어 마스크 → 없음 순서로 자동 결정
    - Strength 0.00 ~ 1.00
    - Batch Size 1 / 2 / 4 / 8 / 16 / 32
    - Strength와 Batch Size는 카드 하단의 상세 설정 보기/숨기기로 접기
    - GPU ON/OFF
-   - Denoise 결과를 처리 시작 시 선택했던 레이어 바로 위에 배치
+   - Noise Reduction 결과를 처리 시작 시 선택했던 레이어 바로 위에 배치
 
 3. Background Neutralisation
    - 메인 화면은 결과 적용, 분석/Editor, 보정 강도, 결과 생성 순서로 단순화
@@ -51,11 +59,13 @@ GraXpert stand-alone CLI를 Photoshop의 Legacy Extension 패널에서 실행하
    - 32-bit 선형 문서는 float 정밀도와 0..1 범위 밖 값을 유지한 채 처리
    - 입력 TIFF의 ICC 색상 프로파일을 결과 TIFF에 그대로 유지
 
-4. 처리 대상
-   - 보이는 레이어: 현재 보이는 레이어를 작업용 문서에서만 임시 합성
-   - 현재 레이어: 현재 선택한 레이어만 처리 (Gradient/Denoise 기본값)
-   - 지정 영역: Photoshop 선택 영역 우선, 없으면 현재 레이어 마스크
-   - 각 범위 버튼에 마우스를 올리면 하단에 상세 설명 표시
+4. 처리 대상과 영역 사용 방식
+   - Background Extraction과 Noise Reduction은 현재 선택한 레이어만 처리
+   - Background Extraction은 Photoshop 선택 영역을 우선 Sample Point 생성 영역으로 사용하고, 없으면 현재 레이어 마스크를 참조
+   - Background Extraction 결과는 항상 현재 레이어 전체에 적용하며 결과 마스크를 만들지 않음
+   - Noise Reduction 결과 마스크는 선택 영역을 우선 사용하고, 없으면 현재 레이어 마스크를 복사
+   - 각 탭의 상태 카드에서 처리 대상과 영역 사용 상태를 실시간 표시
+   - Color Calibration은 현재 레이어/지정 영역 결과 방식을 사용자가 선택
 
 5. 결과 처리
    - Gradient/Denoise/Neutralisation 결과를 처리한 현재 레이어 바로 위에 삽입
@@ -76,7 +86,8 @@ GraXpert stand-alone CLI를 Photoshop의 Legacy Extension 패널에서 실행하
    - 보간 방식은 Gradient 세부 설정으로 이동하고 밀도·품질 기준·Radius는 Gradient Editor에서 조정
    - 포인트 자동 생성 버튼으로 Preview 준비와 Grid 생성을 한 번에 실행
    - 행당 포인트: GraXpert와 동일한 4~25 범위, 기본값 15
-   - Grid Tolerance: 전역 중앙값과 MAD를 이용해 밝은 Grid 후보를 1차 제외, 기본값 1.0
+   - Grid Tolerance: 전역 중앙값과 MAD를 이용해 밝은 구조 후보를 1차 검사, 기본값 1.0
+   - 허용 한계보다 밝더라도 별·중심 구조·질감이 없는 부드러운 광해 배경은 Gradient Point로 허용
    - Gradient Editor 버튼은 Preview가 없으면 자동 준비 후 편집 창 실행
    - 메인 패널의 Canvas는 숨기고 독립 Modeless Editor를 기본 편집 화면으로 사용
    - Gradient Point는 GraXpert Gradient Editor에서 편집
@@ -87,6 +98,8 @@ GraXpert stand-alone CLI를 Photoshop의 Legacy Extension 패널에서 실행하
    - Photoshop 선택 영역이 있으면 처리 범위와 별개로 자동 Point를 선택 내부에 생성
    - Point 생성 영역과 Gradient 결과 적용 영역은 포인트 상태에 마우스를 올려 확인
    - 좌클릭으로 추가, 우클릭으로 Sample 사각 영역 안의 Point 삭제
+   - 기존 Point 사각형을 드래그해 이동하고 놓은 위치에서 품질을 다시 판정
+   - 이동 위치가 이미지·선택 영역 경계를 벗어나거나 다른 Point와 겹치면 기존 위치 유지
    - 마지막 삭제 / 전체 삭제
    - 선택한 밀도에 따른 자동 Grid 생성
    - Photoshop 선택 영역이 있으면 선택 내부로 자동 Grid 제한
@@ -99,22 +112,34 @@ GraXpert stand-alone CLI를 Photoshop의 Legacy Extension 패널에서 실행하
    - Preview 생성 당시 문서 ID, 현재 레이어 ID, 처리 범위와 분석 영역 경계를 저장
    - 실행 전에 Preview 작업 문맥을 다시 검사하고 변경되었으면 재분석 요청
    - Gradient/Neutralise 탭 또는 Neutralise 결과 적용 범위를 바꾸면 기존 Preview와 Point 초기화
-   - 큰 창 크기에 맞춘 Preview 자동 확대와 좌클릭 추가/우클릭 삭제
+   - 화면 맞춤/Preview 100%/최대 400% 확대, 휠 확대·축소와 Space+드래그 이동
+   - 좌클릭 Point 추가와 우클릭 Point 삭제
+   - Gradient Editor에서 전체 해상도 결과를 임시 생성한 뒤 원본/결과 전환 확인
+   - 원본/결과 비교 시 `포인트 표시`를 꺼서 Sample Point 사각형 숨김
+   - 결과 Preview TIFF는 Photoshop 임시 문서를 열지 않고 직접 축소 변환하여 화면 깜빡임 방지
+   - 결과 생성 중에는 Gradient Editor 버튼 Spinner와 이미지 중앙 진행 오버레이 표시
+   - 확인한 전체 해상도 결과 파일을 다시 계산하지 않고 Photoshop에 적용
+   - Photoshop 적용이 성공하면 Gradient Editor 창을 자동으로 닫음
+   - 포인트나 처리 설정이 바뀌면 기존 결과를 무효화하고 다시 계산 요청
+   - Editor를 닫거나 취소하면 적용하지 않은 전체 해상도 임시 결과 정리
    - 한 번의 버튼 클릭으로 큰 창 활성화 및 헤더의 '창 닫기' 지원
+   - Modeless 네이티브 제목 표시줄에 Editor 이름 표시
+   - 기본 창 너비에서는 상단 도구 모음을 한 줄로 맞추고 불필요한 가로 스크롤 제거
    - GraXpert와 동일하게 Point 중심에서 Sample Size만큼 확장한 사각 계산 영역을 테두리 2px로 표시
      (Sample Size 25이면 원본 이미지 기준 약 50×50px)
    - Preview 전역 밝기와 Sample 주변 밝기 분포 분석
    - Point 품질을 적합(초록), 주의(주황), 제외(빨강)로 표시
-   - 자동 Grid에서 과도하게 밝은 영역 제외
-   - 빨간 Point는 GraXpert preferences에서 제외
+   - 자동 Grid에서 밝기 자체가 아니라 별·중심 구조·국부 질감이 있는 밝은 영역을 제외
+   - Gradient 실행은 초록색 적합 Point만 사용하며 주황색 주의와 빨간색 제외 Point는 preferences에서 제외
    - 국소 중앙값과 이상 밝은 픽셀 비율로 별 밀집 영역 감지
    - Sample 중심부와 외곽부 밝기 차이로 은하 중심 구조 회피
    - Point에 마우스를 올리면 판정 사유와 원본 좌표 표시
    - Grid 중심이 부적합하면 같은 셀의 안전한 위치로 자동 재배치
    - 적합한 중심점은 유지해 Grid 균일성 보존
    - Sample Size로 계산한 영역을 5×5로 검사해 전체가 Selection 내부인 후보만 사용
-   - 자동 Grid 완료 후 재배치 수와 사용할 수 없는 셀 수 표시
-   - 품질 분석 강도: 느슨함 / 표준 / 엄격함
+   - 자동 Grid 완료 후 재배치 수, 부드러운 광해 허용 수와 사용할 수 없는 셀 수 표시
+   - 품질 분석 강도: 사용 안 함(GraXpert Grid Tolerance만) / 느슨함 / 표준 / 엄격함
+   - 사용 안 함에서는 자동 Grid의 Tolerance 통과 Point와 사용자가 직접 추가한 Point를 별도 구조 검사 없이 사용
    - 프리셋 변경 시 기존 Point 색상·점수·제외 상태 실시간 재분석
    - 적합·주의·제외 수, 평균 점수 및 판정 사유별 요약 표시
    - GraXpert 표시 프리셋: No Stretch / 10% / 15% / 20% / 30% Background
@@ -124,7 +149,9 @@ GraXpert stand-alone CLI를 Photoshop의 Legacy Extension 패널에서 실행하
    - Stretch는 Sample Preview 표시에만 적용하고 품질 분석 픽셀은 선형 상태 유지
    - Gradient/Denoise 실행은 항상 선형 결과 레이어만 생성
    - 실제 Stretched 결과 생성 기능과 전용 Editor는 StarNet2 Photoshop Panel로 이동
-   - Gradient/Denoise/Neutralisation 결과를 지정 영역에만 표시하는 비파괴 레이어 마스크
+   - Background Extraction은 선택 영역/레이어 마스크를 Sample Point 분석에만 사용하고 결과는 전체에 적용
+   - Noise Reduction은 선택 영역 또는 현재 레이어 마스크를 결과에 자동 적용
+   - Color Calibration 지정 영역은 감지한 분석 영역을 결과에 비파괴 레이어 마스크로 적용
    - 성공·실패 시 지정 영역 임시 알파 채널 정리 및 기존 선택 영역 복원
 
 
@@ -134,13 +161,16 @@ GraXpert Windows 실행 파일을 먼저 설치하거나 다운로드합니다.
 
 명령 프롬프트에서 다음 명령이 실행되는지 확인하세요.
 
-GraXpert-win64.exe -h
+GraXpert.exe -h
 
 PATH에 등록하지 않았다면 패널의 "GraXpert 실행 파일"에 전체 경로를
 입력하고 [저장]을 누릅니다.
 
 예:
-C:\AstroTools\GraXpert-win64.exe
+%LOCALAPPDATA%\Programs\GraXpert\GraXpert.exe
+
+패널은 위의 GraXpert 기본 설치 위치를 먼저 자동 확인하고, 파일이 없으면
+PATH에 등록된 GraXpert.exe를 사용합니다.
 
 
 설치
@@ -167,25 +197,24 @@ CSXS.9 ~ CSXS.15 PlayerDebugMode를 1로 설정합니다. 설치 전 Photoshop �
 2. Uninstall_Windows.bat 실행
 3. 다른 서명되지 않은 CEP 패널을 사용한다면 PlayerDebugMode는 기본값대로 보존
 
-제거 프로그램은 GraXpert 패널 설치 폴더만 삭제하며 Documents의 Background
-model과 임시 진단 파일은 삭제하지 않습니다. PlayerDebugMode는 여러 CEP 패널이
+제거 프로그램은 GraXpert 패널 설치 폴더만 삭제하며 Photoshop 문서에 추가된
+Background Model 레이어와 임시 진단 파일은 삭제하지 않습니다. PlayerDebugMode는 여러 CEP 패널이
 공유하므로 기본값은 보존입니다. 명령줄에서 레지스트리 값까지 제거하려면
 Uninstall_Windows.bat /remove-debug를 사용하고, 질문 없이 보존하려면
 Uninstall_Windows.bat /keep-debug를 사용합니다.
 
 
-Background model 저장
----------------------
-"Background model도 저장"을 선택하면 GraXpert가 생성한 배경 모델을
-임시 폴더에서 다음 영구 폴더로 복사합니다.
+Background Model 레이어
+-----------------------
+"Background Model 레이어 추가"를 선택하면 GraXpert가 생성한 전체 해상도
+배경 모델을 Photoshop 문서로 가져옵니다. 레이어 이름은
+"GraXpert - Background Model"이며, Gradient 결과 아래와 처리한 원본 레이어
+바로 위에 숨김 상태로 배치됩니다. 눈 아이콘을 켜서 모델을 확인할 수 있습니다.
 
-%USERPROFILE%\Documents\GraXpert Background Models
-
-파일명:
-원본문서명_GraXpert_background_타임스탬프.fits
-
-저장 성공 후 임시 배경 파일은 삭제됩니다. 영구 저장에 실패하면 결과
-유실을 막기 위해 임시 파일을 보존하고 패널 메시지에 경로를 표시합니다.
+FITS 모델은 가져오기 전에 TIFF로 변환되며, 가져오기가 완료되면 모델 원본과
+변환 중간 파일은 임시 폴더에서 삭제됩니다. Documents 폴더에는 별도 파일을
+남기지 않습니다. 큰 이미지에서는 Background Model 레이어만큼 Photoshop
+문서 메모리와 저장 용량이 증가합니다.
 
 
 Background Neutralisation
@@ -302,7 +331,7 @@ Diagnose_Install.bat는 다음 항목을 확인합니다.
 - 소스 manifest.xml 존재 여부
 - 설치된 manifest.xml 존재 여부
 - CSXS.9 ~ CSXS.15 PlayerDebugMode=1 여부
-- GraXpert-win64.exe PATH 등록 여부
+- GraXpert.exe PATH 등록 여부
 
 문제 보고 시 다음 정보를 함께 제공하세요.
 
@@ -336,7 +365,7 @@ tests\Photoshop_Integration_Result.txt에 저장됩니다.
 - BITPIX 16 및 BSCALE/BZERO 변환
 - 안전 범위를 벗어난 FITS 크기와 Classic TIFF 4GB 초과 방지
 - 손상된 TIFF IFD·태그 수·Strip 오프셋 방어
-- Background model 영구 저장과 임시 파일 정리
+- Background Model FITS 변환, 숨김 레이어 가져오기와 임시 파일 정리
 - Photoshop 입력 변환 실패 시 임시 문서 정리와 원본 복구
 - 단일 Background 레이어의 현재 레이어 내보내기 시 불필요한 표시/숨기기 명령 방지
 - Photoshop 선택 영역 저장·복원과 하늘 결과 레이어 마스크 적용

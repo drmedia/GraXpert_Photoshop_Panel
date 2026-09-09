@@ -12,6 +12,14 @@
       <div id="selectionStatus" class="sub">메인 패널에 연결하는 중…</div>
     </div>
     <div class="header-actions">
+      <div class="zoom-controls" aria-label="Preview 확대 및 축소">
+        <button id="zoomOut" type="button" title="축소">−</button>
+        <output id="zoomValue">맞춤</output>
+        <button id="zoomIn" type="button" title="확대">＋</button>
+        <button id="zoomFit" type="button">화면 맞춤</button>
+        <button id="zoomActual" type="button">Preview 100%</button>
+      </div>
+      <div id="gridStatus" class="grid-status hidden">포인트 재생성 필요</div>
       <div id="sampleCount" class="count">0 points</div>
       <button id="closeEditor" class="close-btn">창 닫기</button>
     </div>
@@ -39,14 +47,15 @@
     <label title="GraXpert sample_size 값입니다. 25이면 포인트 주변 약 50×50px 영역을 계산합니다.">Sample Size
       <input id="sampleSize" type="number" min="2" max="200" step="1" value="25">
     </label>
-    <label class="compact-select" title="GraXpert Grid 검사 후 별과 밝은 구조물을 한 번 더 검사하는 패널 보강 기능입니다.">추가 품질 검사
+    <label class="compact-select" title="사용 안 함은 GraXpert Grid Tolerance만 적용합니다. 나머지는 별과 천체 구조를 한 번 더 검사합니다.">추가 품질 검사
       <select id="qualityPreset">
+        <option value="off">사용 안 함</option>
         <option value="relaxed">느슨함</option>
         <option value="standard" selected>표준</option>
         <option value="strict">엄격함</option>
       </select>
     </label>
-    <label class="check"><input id="selectionOnly" type="checkbox"> 선택 영역만</label>
+    <label class="check"><input id="selectionOnly" type="checkbox"> <span id="selectionOnlyLabel">지정 영역만</span></label>
     <div class="editor-button-group">
       <button id="autoSamples">포인트 다시 생성</button>
       <button id="undoSample">마지막 삭제</button>
@@ -54,14 +63,33 @@
     </div>
   </div>
 
+  <div class="result-toolbar">
+    <div class="view-switch" aria-label="Preview 표시">
+      <button id="viewOriginal" class="active" type="button">원본</button>
+      <button id="viewResult" type="button" disabled>결과</button>
+    </div>
+    <label class="point-visibility" title="원본과 결과를 비교할 때 Sample Point 사각형을 표시하거나 숨깁니다.">
+      <input id="showPoints" type="checkbox" checked> 포인트 표시
+    </label>
+    <div id="resultStatus" class="result-status">결과 미리보기 전</div>
+    <button id="generateResult" class="result-generate" type="button">결과 미리보기 생성</button>
+    <button id="cancelResult" class="hidden" type="button">처리 취소</button>
+    <button id="applyResult" class="result-apply" type="button" disabled>Photoshop에 적용</button>
+  </div>
+
   <main id="canvasWrap">
     <canvas id="sampleCanvas"></canvas>
     <div id="emptyMessage">Gradient Preview가 준비되지 않았습니다.</div>
+    <div id="resultBusyOverlay" class="result-busy-overlay hidden" role="status" aria-live="polite">
+      <span class="busy-spinner" aria-hidden="true"></span>
+      <strong>Gradient 결과 생성 중…</strong>
+      <span>GraXpert 처리가 끝날 때까지 잠시 기다려 주세요.</span>
+    </div>
   </main>
 
   <footer>
-    <div class="legend"><span class="good">● 적합</span><span class="warning">● 주의</span><span class="exclude">● 제외</span></div>
-    <div id="pointInfo">좌클릭: Point 추가 · 우클릭: Sample 사각 영역의 Point 삭제</div>
+    <div class="legend"><span class="good">● 적합(사용)</span><span class="warning">● 주의(미사용)</span><span class="exclude">● 제외(미사용)</span></div>
+    <div id="pointInfo">Point 드래그: 위치 이동 · 빈 곳 좌클릭: 추가 · 우클릭: 삭제 · 휠: 확대/축소 · Space+드래그: 화면 이동</div>
     <div id="qualityReport"></div>
   </footer>
 

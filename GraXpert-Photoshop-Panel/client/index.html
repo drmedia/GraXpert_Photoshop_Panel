@@ -17,41 +17,107 @@
       <div class="title">GraXpert</div>
       <div class="sub">Stand-alone CLI · Photoshop</div>
     </div>
-    <button id="settingsBtn" class="badge settings-btn" type="button" title="설정" aria-label="설정" aria-pressed="false"><span class="settings-icon" aria-hidden="true">&#9881;&#65038;</span></button>
+    <div class="header-actions">
+      <button id="helpBtn" class="badge help-btn" type="button" title="빠른 도움말" aria-label="빠른 도움말" aria-expanded="false" aria-controls="quickHelp">?</button>
+      <button id="settingsBtn" class="badge settings-btn" type="button" title="설정" aria-label="설정" aria-pressed="false"><span class="settings-icon" aria-hidden="true">&#9881;&#65038;</span></button>
+    </div>
+  </div>
+
+  <div id="quickHelp" class="quick-help hidden" role="region" aria-label="빠른 도움말">
+    <div class="quick-help-header">
+      <div>
+        <div class="quick-help-title">GraXpert 도움말</div>
+        <div class="quick-help-subtitle">v0.9.1 · Photoshop CEP Panel</div>
+      </div>
+      <button id="closeQuickHelp" type="button" title="도움말 닫기" aria-label="도움말 닫기">×</button>
+    </div>
+
+    <section class="quick-help-section">
+      <h2>시작하기</h2>
+      <ol>
+        <li>Photoshop에서 처리할 RGB 픽셀 레이어를 선택합니다.</li>
+        <li>설정에서 GraXpert 실행 파일 경로와 GPU 사용 여부를 확인합니다.</li>
+        <li>Background Extraction 또는 Noise Reduction 탭을 선택해 실행합니다.</li>
+      </ol>
+      <p>결과는 원본을 변경하지 않고, 처리 시작 시 선택했던 레이어 바로 위에 새 레이어로 추가됩니다.</p>
+    </section>
+
+    <section class="quick-help-section">
+      <h2>Background Extraction</h2>
+      <p><strong>AI 자동</strong>은 GraXpert가 배경 Gradient를 자동 분석합니다. 처음 사용할 때 권장합니다.</p>
+      <p><strong>Sample Point</strong>는 사용자가 확인한 배경 위치로 Gradient를 계산합니다. 자동 결과가 은하나 성운까지 어둡게 만들 때 사용하세요.</p>
+      <ul>
+        <li>[자동 생성]으로 초기 Point를 만듭니다.</li>
+        <li>[Gradient Editor 열기]에서 Point를 추가·삭제·이동합니다.</li>
+        <li>초록색 Point만 계산에 사용됩니다. 주황색과 빨간색은 위치 또는 품질 설정을 조정하세요.</li>
+        <li>결과 미리보기를 생성해 원본과 비교한 뒤 Photoshop에 적용합니다.</li>
+      </ul>
+    </section>
+
+    <section class="quick-help-section">
+      <h2>선택 영역과 레이어 마스크</h2>
+      <p><strong>Background Extraction:</strong> 선택 영역이나 현재 레이어 마스크는 Sample Point 분석 범위로만 사용합니다. Gradient 결과에는 마스크를 만들지 않습니다.</p>
+      <p><strong>Noise Reduction:</strong> Photoshop 선택 영역을 우선 결과 마스크로 사용하며, 선택 영역이 없으면 현재 레이어 마스크를 복사합니다.</p>
+    </section>
+
+    <section class="quick-help-section">
+      <h2>상세 설정</h2>
+      <ul>
+        <li><strong>Smoothing:</strong> 배경 모델을 부드럽게 만드는 정도이며 기본값은 0.00입니다.</li>
+        <li><strong>Correction:</strong> 일반적인 광해는 Subtraction, 비네팅은 Division을 비교합니다.</li>
+        <li><strong>Background Model:</strong> 선택하면 전체 해상도 모델을 숨김 레이어로 추가합니다.</li>
+        <li><strong>Denoise Strength:</strong> 기본값 0.50에서 시작합니다.</li>
+        <li><strong>Batch Size:</strong> 기본값 4이며 GPU 메모리 부족 시 2 또는 1로 낮춥니다.</li>
+      </ul>
+    </section>
+
+    <section class="quick-help-section">
+      <h2>문제가 있을 때</h2>
+      <ul>
+        <li>처리 중에는 패널, 원본 문서와 Gradient Editor를 닫지 마세요.</li>
+        <li>처리 중 선택 레이어, 문서 이름 또는 캔버스 크기를 변경하지 마세요.</li>
+        <li>GraXpert를 찾지 못하면 설정에서 GraXpert.exe를 다시 선택합니다.</li>
+        <li>설치 문제가 있으면 Photoshop을 종료하고 Diagnose_Install.bat를 실행합니다.</li>
+      </ul>
+    </section>
+
+    <div class="quick-help-note">이번 v0.9.1 배포에서는 Background Extraction과 Noise Reduction을 제공합니다.</div>
   </div>
 
   <div id="tabs" class="tabs">
     <button id="tabBg" class="tab active">Background Extraction</button>
-    <button id="tabNeutral" class="tab">Color Calibration</button>
+    <button id="tabNeutral" class="tab hidden" aria-hidden="true" tabindex="-1">Color Calibration</button>
     <button id="tabDn" class="tab">Noise Reduction</button>
   </div>
 
-  <div id="scopeCard" class="card">
-    <div class="section-title">처리 범위</div>
-    <div class="segmented scope-grid">
-    <label class="scope-option" data-description="현재 보이는 레이어를 임시로 합성해 처리합니다. 원본 레이어는 병합되지 않습니다." title="현재 보이는 레이어를 임시로 합성해 처리합니다. 원본 레이어는 병합되지 않습니다.">
-      <input type="radio" name="scope" value="document">
-      <span>보이는 레이어</span>
-    </label>
-    <label class="scope-option" data-description="현재 선택한 레이어만 전체 프레임 크기로 처리합니다." title="현재 선택한 레이어만 전체 프레임 크기로 처리합니다.">
-      <input type="radio" name="scope" value="layer" checked>
-      <span>현재 레이어</span>
-    </label>
-    <label class="scope-option" data-description="Photoshop 선택 영역을 우선 사용하고, 없으면 현재 레이어 마스크를 사용합니다." title="Photoshop 선택 영역을 우선 사용하고, 없으면 현재 레이어 마스크를 사용합니다.">
-      <input type="radio" name="scope" value="sky">
-      <span>지정 영역</span>
-    </label>
+  <div id="scopeCard" class="card processing-context-card">
+    <div class="processing-context-block">
+      <div class="processing-context-label">처리 대상</div>
+      <div class="processing-context-row">
+        <div id="backgroundTargetValue" class="processing-context-value">현재 레이어</div>
+        <span id="backgroundTargetBadge" class="processing-context-badge checking">확인 중</span>
+      </div>
+      <div id="backgroundTargetHint" class="processing-context-hint">문서를 확인하고 있습니다.</div>
     </div>
-    <div id="scopeHint" class="hint scope-hint">현재 선택한 레이어만 전체 프레임 크기로 처리합니다.</div>
+    <div class="processing-context-divider"></div>
+    <div class="processing-context-block">
+      <div class="processing-context-label">Sample Point 영역</div>
+      <div class="processing-context-row">
+        <div id="backgroundMaskValue" class="processing-context-value">확인 중</div>
+        <span id="backgroundMaskBadge" class="processing-context-badge checking">자동</span>
+      </div>
+      <div id="backgroundMaskHint" class="processing-context-hint">분석에 사용할 선택 영역과 현재 레이어 마스크를 확인하고 있습니다.</div>
+    </div>
   </div>
 
   <div id="bgPanel">
     <div id="gradientCard" class="card">
-      <div class="section-title">Gradient 방식</div>
-      <div class="segmented method-grid">
+      <div class="section-title">방식</div>
+      <div class="segmented method-grid" role="radiogroup" aria-label="Background Extraction 방식">
         <label><input type="radio" name="gradientMethod" value="AI" checked><span>AI 자동</span></label>
-        <label><input type="radio" name="gradientMethod" value="sample"><span>배경 포인트</span></label>
+        <label><input type="radio" name="gradientMethod" value="sample"><span>Sample Point</span></label>
       </div>
+      <div id="gradientMethodHint" class="hint method-hint">GraXpert가 배경 Gradient를 자동으로 분석합니다.</div>
 
       <div id="gradientAdvancedBody" class="gradient-advanced-body hidden">
         <div id="gradientSampleMethod" class="gradient-sample-method hidden">
@@ -80,10 +146,10 @@
         </div>
 
         <label class="check">
-          <input id="saveBackground" type="checkbox">
-          <span>Background model도 저장</span>
+          <input id="addBackgroundLayer" type="checkbox">
+          <span>Background Model 레이어 추가</span>
         </label>
-        <div class="hint">저장 위치: 내 문서 &gt; GraXpert Background Models</div>
+        <div class="hint">전체 해상도 Model을 숨김 레이어로 가져옵니다.</div>
       </div>
       <button id="gradientAdvancedToggle" class="advanced-toggle" type="button" aria-expanded="false">상세 설정 보기</button>
     </div>
@@ -91,12 +157,12 @@
 
   <div id="sampleCard" class="card hidden">
     <div class="row between">
-      <div id="sampleCardTitle" class="section-title no-margin">배경 포인트</div>
+      <div id="sampleCardTitle" class="section-title no-margin">Sample Point</div>
       <span id="sampleCount" class="sample-count">준비되지 않음</span>
     </div>
     <div class="sample-primary-actions">
-      <button id="generateSamples" class="editor-main-btn sample-window-btn">포인트 자동 생성</button>
-      <button id="openSampleWindow" class="editor-main-btn">Gradient Editor</button>
+      <button id="generateSamples" class="editor-main-btn">자동 생성</button>
+      <button id="openSampleWindow" class="editor-main-btn sample-window-btn">Gradient Editor 열기</button>
     </div>
 
     <div id="sampleMainDetails" class="hidden" aria-hidden="true">
@@ -119,6 +185,7 @@
 
         <div class="quality-preset-title">추가 품질 검사</div>
         <div class="segmented quality-preset">
+          <label title="패널 보강 검사를 생략하고 GraXpert Grid Tolerance만 적용합니다."><input type="radio" name="qualityPreset" value="off"><span>사용 안 함</span></label>
           <label><input type="radio" name="qualityPreset" value="relaxed"><span>느슨함</span></label>
           <label><input type="radio" name="qualityPreset" value="standard" checked><span>표준</span></label>
           <label><input type="radio" name="qualityPreset" value="strict"><span>엄격함</span></label>
@@ -168,6 +235,26 @@
   </div>
 
   <div id="dnPanel" class="hidden">
+    <div id="denoiseScopeCard" class="card processing-context-card">
+      <div class="processing-context-block">
+        <div class="processing-context-label">처리 대상</div>
+        <div class="processing-context-row">
+          <div id="denoiseTargetValue" class="processing-context-value">현재 레이어</div>
+          <span id="denoiseTargetBadge" class="processing-context-badge checking">확인 중</span>
+        </div>
+        <div id="denoiseTargetHint" class="processing-context-hint">문서를 확인하고 있습니다.</div>
+      </div>
+      <div class="processing-context-divider"></div>
+      <div class="processing-context-block">
+        <div class="processing-context-label">결과 마스크</div>
+        <div class="processing-context-row">
+          <div id="denoiseMaskValue" class="processing-context-value">확인 중</div>
+          <span id="denoiseMaskBadge" class="processing-context-badge checking">자동</span>
+        </div>
+        <div id="denoiseMaskHint" class="processing-context-hint">선택 영역과 현재 레이어 마스크를 확인하고 있습니다.</div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="section-title">Denoise</div>
       <div class="hint">기본 설정으로 바로 실행하거나 필요한 경우 상세 설정을 조정합니다.</div>
@@ -254,11 +341,11 @@
 
     <div class="section-title path-title">GraXpert 실행 파일</div>
     <div class="path-row">
-      <input id="exePath" type="text" value="GraXpert-win64.exe" spellcheck="false">
+      <input id="exePath" type="text" value="GraXpert.exe" spellcheck="false">
       <button id="browsePath" class="small-btn">찾기</button>
       <button id="savePath" class="small-btn">저장</button>
     </div>
-    <div class="hint">PATH 미등록 시 GraXpert-win64.exe 전체 경로를 입력하세요.</div>
+    <div class="hint">PATH 미등록 시 GraXpert.exe 전체 경로를 입력하세요.</div>
   </div>
 
   <button id="runBtn" class="run-btn">
@@ -277,7 +364,7 @@
   <div id="message" class="message"></div>
 
   <div id="footer" class="footer">
-    <div class="footer-version">GraXpert CLI 3.0.x · v0.9.0</div>
+    <div class="footer-version">GraXpert CLI 3.0.x · v0.9.1</div>
     <div>원본을 보존하려면 복제 문서나 복제 레이어에서 작업하는 것이 안전합니다.</div>
   </div>
 </div>

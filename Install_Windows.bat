@@ -3,7 +3,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul
 
 echo ============================================================
-echo GraXpert Photoshop Panel Installer v0.9.0
+echo GraXpert Photoshop Panel Installer v0.9.1
 echo ============================================================
 echo.
 

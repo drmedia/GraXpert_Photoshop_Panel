@@ -21,11 +21,11 @@ function element() {
 function loadPanelApi() {
   var elements = {};
   var ids = [
-    "settingsBtn", "tabs", "footer", "tabBg", "tabDn", "tabNeutral", "bgPanel", "gradientCard", "dnPanel", "neutralPanel",
-    "scopeCard", "scopeHint", "runtimeCard", "smoothing", "strength",
+    "settingsBtn", "helpBtn", "quickHelp", "closeQuickHelp", "tabs", "footer", "tabBg", "tabDn", "tabNeutral", "bgPanel", "gradientCard", "dnPanel", "neutralPanel",
+    "scopeCard", "runtimeCard", "smoothing", "strength",
     "exePath", "runBtn", "cancelRunBtn", "busyBanner", "savePath", "smoothingValue",
     "strengthValue", "runText", "progressWrap", "progressBar", "status",
-    "message", "useGpu", "saveBackground", "batchSize", "sampleCard",
+    "message", "useGpu", "addBackgroundLayer", "batchSize", "sampleCard",
     "sampleEditor", "sampleCanvas", "sampleCanvasEmpty", "sampleCount",
     "selectionStatus", "undoSample", "clearSamples", "autoSamples", "openSampleWindow",
     "preparePreview", "sampleSize", "pointsPerRow", "gridTolerance", "selectionOnly", "browsePath", "sampleCanvasWrap",
@@ -33,7 +33,11 @@ function loadPanelApi() {
     "previewSaturationValue", "neutralSampleCount", "neutralStrength", "neutralStrengthValue",
     "neutralSkyOnly", "neutralScopeLayer", "neutralizeActiveLayer", "neutralAnalyze", "neutralAnalysisStatus", "neutralPointSlot", "neutralEstimateStatus",
     "gradientAdvancedToggle", "gradientAdvancedBody", "gradientSampleMethod", "gradientInterpolation",
-    "denoiseAdvancedToggle", "denoiseAdvancedBody",
+    "backgroundTargetValue", "backgroundTargetBadge", "backgroundTargetHint",
+    "backgroundMaskValue", "backgroundMaskBadge", "backgroundMaskHint",
+    "denoiseAdvancedToggle", "denoiseAdvancedBody", "denoiseScopeCard",
+    "denoiseTargetValue", "denoiseTargetBadge", "denoiseTargetHint",
+    "denoiseMaskValue", "denoiseMaskBadge", "denoiseMaskHint",
     "sampleScopeStatus", "generateSamples"
   ];
   ids.forEach(function (id) { elements[id] = element(); });
@@ -223,7 +227,9 @@ function testHostCleanup() {
       TiffSaveOptions: function () {}, TIFFEncoding: { NONE: 0 }, Extension: { LOWERCASE: 0 }
     };
     vm.runInNewContext(code, context, { filename: "host.jsx" });
+    context.GX_activeLayerHasMask = function () { return false; };
     assert.strictEqual(context.GX_getActiveLayerInfo(), "OK|7|42|B:16|BXT%20Result");
+    assert.strictEqual(context.GX_getActiveContextIdentity(), "OK|7|42|100|50");
     var result = context.GX_exportInput("test.tif", scope || "document");
     assert.strictEqual(closeCount, 1);
     assert.strictEqual(context.app.activeDocument, original);
@@ -246,6 +252,12 @@ function testHostCleanup() {
   assert.strictEqual(backgroundOnly.hideAttempts, 0);
   assert.strictEqual(backgroundOnly.showAttempts, 0);
   assert.strictEqual(backgroundOnly.saveCount, 1);
+
+  var denoiseLayer = runCase(false, "layer-auto", true);
+  assert.strictEqual(denoiseLayer.result, "OK|7|100|50||L:42|C:none%3A|test.psd");
+  assert.strictEqual(denoiseLayer.hideAttempts, 0);
+  assert.strictEqual(denoiseLayer.showAttempts, 0);
+  assert.strictEqual(denoiseLayer.saveCount, 1);
 }
 
 function testSamplePreviewCleanup() {
@@ -277,6 +289,7 @@ function testSamplePreviewCleanup() {
   originalChannels.add = function () { originalChannels.push(originalAlpha); return originalAlpha; };
   var original = {
     id: 7,
+    name: "test.psd",
     width: { as: function () { return 100; } },
     height: { as: function () { return 50; } },
     channels: originalChannels,
@@ -297,18 +310,19 @@ function testSamplePreviewCleanup() {
   var context = {
     app: { documents: [original], activeDocument: original },
     DocumentMode: { RGB: "RGB" }, ChangeMode: { RGB: "RGB" },
-    BitsPerChannelType: { EIGHT: "EIGHT" }, SaveOptions: { DONOTSAVECHANGES: 0 },
+    BitsPerChannelType: { EIGHT: "EIGHT", SIXTEEN: "SIXTEEN" }, SaveOptions: { DONOTSAVECHANGES: 0 },
     File: function (value) { return value; }, UnitValue: function (value) { return value; },
-    JPEGSaveOptions: function () {}, PNGSaveOptions: function () {},
+    JPEGSaveOptions: function () {}, PNGSaveOptions: function () {}, TiffSaveOptions: function () {},
+    TIFFEncoding: { NONE: 0 }, ByteOrder: { IBM: 0 },
     Extension: { LOWERCASE: 0 }, ResampleMethod: { BICUBICSHARPER: 0, NEARESTNEIGHBOR: 1 },
     SolidColor: function () { this.rgb = {}; }, ChannelType: { COMPONENT: "COMPONENT" },
     ColorBlendMode: { NORMAL: 0 }, SelectionType: { REPLACE: 0 }
   };
 
   vm.runInNewContext(code, context, { filename: "host.jsx" });
-  var result = context.GX_exportSamplePreview("preview.png", "mask.png", 1400, 900, "sky");
-  assert.strictEqual(result, "OK|7|100|50|100|50|YES|L:-1|C:selection%3A0%2C0%2C50%2C25");
-  assert.strictEqual(saveCount, 2);
+  var result = context.GX_exportSamplePreview("preview.png", "mask.png", 1400, 900, "sky", "input.tif");
+  assert.strictEqual(result, "OK|7|100|50|100|50|YES|L:-1|C:selection%3A0%2C0%2C50%2C25|N:test.psd");
+  assert.strictEqual(saveCount, 3);
   assert.strictEqual(closeCount, 2);
   assert.strictEqual(selectionStored, 2);
   assert.strictEqual(selectionLoaded, 2);
@@ -360,7 +374,7 @@ function testSkyMaskWorkflow() {
       };
     }
   };
-  var importedLayer = { name: "", remove: function () {} };
+  var importedLayer = { name: "", visible: true, remove: function () {} };
   var resultDocument = {
     width: { as: function () { return 100; } },
     height: { as: function () { return 50; } },
@@ -402,21 +416,28 @@ function testSkyMaskWorkflow() {
     }
   };
   vm.runInNewContext(code, context, { filename: "host.jsx" });
-  var exportResult = context.GX_exportInput("input.tif", "sky");
+  var exportResult = context.GX_exportInput("input.tif", "layer-auto");
   assert.match(exportResult, /^OK\|7\|100\|50\|S:__GRAXPERT_SKY_MASK_/);
   assert.strictEqual(selectionStores, 2);
   var exportParts = exportResult.split("|");
   var maskToken = exportParts[4];
   var importResult = context.GX_importResultById(
-    "result.tif", 7, "sky|target.psd", "GraXpert Denoise - Sky", maskToken
+    "result.tif", 7, "sky|target.psd", "GraXpert Denoise", maskToken
   );
   assert.strictEqual(importResult, "OK");
-  assert.strictEqual(importedLayer.name, "GraXpert Denoise - Sky");
+  assert.strictEqual(importedLayer.name, "GraXpert Denoise");
   assert.strictEqual(masksAdded, 1);
   assert.strictEqual(selectionLoads, 2);
   assert.strictEqual(removedChannels, 2);
   assert.strictEqual(resultClosed, 1);
   assert.strictEqual(channelSerial, 2);
+  var hiddenModelResult = context.GX_importResultById(
+    "background.tif", 7, "sky|target.psd", "GraXpert - Background Model", "", null, true
+  );
+  assert.strictEqual(hiddenModelResult, "OK");
+  assert.strictEqual(importedLayer.name, "GraXpert - Background Model");
+  assert.strictEqual(importedLayer.visible, false);
+  assert.strictEqual(resultClosed, 2);
   var wrongDocumentResult = context.GX_importResultById(
     "result.tif", 999, "sky|target.psd", "Wrong target", ""
   );
@@ -425,7 +446,17 @@ function testSkyMaskWorkflow() {
     "result.tif", 7, "sky|target.psd", "Missing anchor", "", 999
   );
   assert.match(missingLayerResult, /^ERR\|처리 시작 시 선택한 원본 레이어를 찾을 수 없습니다\./);
-  assert.strictEqual(openCalls, 1);
+  target.activeLayer.id = 42;
+  context.GX_analysisContext = function () { return "selection:test"; };
+  assert.strictEqual(
+    context.GX_validateProcessingContext(7, 42, 100, 50, "selection:test", "layer-auto"),
+    "OK"
+  );
+  assert.match(
+    context.GX_validateProcessingContext(7, 43, 100, 50, "selection:test", "layer-auto"),
+    /^ERR\|결과를 생성한 뒤 현재 레이어가 변경되었습니다\./
+  );
+  assert.strictEqual(openCalls, 2);
 }
 
 function testLayerMaskFallbackCapture() {
@@ -496,24 +527,40 @@ function testHtmlAndInstaller() {
   var neutralEditorHtml = fs.readFileSync(path.join(panelDir, "client", "neutral-editor-window.html"), "utf8");
   var editorScript = fs.readFileSync(path.join(panelDir, "client", "sample-editor-window.js"), "utf8");
   var editorStyle = fs.readFileSync(path.join(panelDir, "client", "sample-editor-window.css"), "utf8");
+  var panelStyle = fs.readFileSync(path.join(panelDir, "client", "style.css"), "utf8");
   assert.strictEqual((html.match(/<div\b/g) || []).length, (html.match(/<\/div>/g) || []).length);
   assert.strictEqual((editorHtml.match(/<div\b/g) || []).length, (editorHtml.match(/<\/div>/g) || []).length);
   assert.strictEqual((neutralEditorHtml.match(/<div\b/g) || []).length, (neutralEditorHtml.match(/<\/div>/g) || []).length);
 
   var installer = fs.readFileSync(path.join(root, "Install_Windows.bat"), "ascii");
   var uninstaller = fs.readFileSync(path.join(root, "Uninstall_Windows.bat"), "ascii");
+  var diagnoseInstaller = fs.readFileSync(path.join(root, "Diagnose_Install.bat"), "ascii");
   var manifest = fs.readFileSync(path.join(panelDir, "CSXS", "manifest.xml"), "utf8");
   var panelScript = fs.readFileSync(path.join(panelDir, "client", "main.js"), "utf8");
+  var hostScript = fs.readFileSync(path.join(panelDir, "host", "host.jsx"), "utf8");
   var readme = fs.readFileSync(path.join(root, "README_KO.txt"), "utf8");
+  var userGuide = fs.readFileSync(path.join(root, "USER_GUIDE_KO.txt"), "utf8");
   var integrationRunner = fs.readFileSync(path.join(root, "tests", "Run_Photoshop_Integration.ps1"), "utf8");
   var integrationScript = fs.readFileSync(path.join(root, "tests", "Photoshop_Integration_Test.jsx"), "utf8");
-  assert.match(installer, /v0\.9\.0/);
-  assert.match(uninstaller, /v0\.9\.0/);
-  assert.match(manifest, /ExtensionBundleVersion="0\.9\.0"/);
+  assert.match(installer, /v0\.9\.1/);
+  assert.match(uninstaller, /v0\.9\.1/);
+  assert.match(manifest, /ExtensionBundleVersion="0\.9\.1"/);
+  assert.match(html, /id="exePath"[^>]*value="GraXpert\.exe"/);
+  assert.match(panelScript, /function defaultGraXpertExecutable\(\)/);
+  assert.match(panelScript, /"Programs", "GraXpert", "GraXpert\.exe"/);
+  assert.match(panelScript, /exePath\.value\.trim\(\) \|\| defaultGraXpertExecutable\(\)/);
+  assert.match(panelScript, /saved\.replace\(\/GraXpert-win64\\\.exe\$\/i, "GraXpert\.exe"\)/);
+  assert.match(diagnoseInstaller, /where GraXpert\.exe/);
+  assert.match(diagnoseInstaller, /%LOCALAPPDATA%\\Programs\\GraXpert\\GraXpert\.exe/);
+  assert.doesNotMatch(diagnoseInstaller, /where GraXpert-win64\.exe/);
   assert.match(manifest, /ExtensionBundleId="com\.drmedia\.graxpertps"/);
   assert.match(manifest, /Extension Id="com\.drmedia\.graxpertps\.panel"/);
   assert.match(manifest, /Extension Id="com\.drmedia\.graxpertps\.gradienteditor"/);
   assert.match(manifest, /Extension Id="com\.drmedia\.graxpertps\.neutraleditor"/);
+  assert.match(html, /id="addBackgroundLayer"/);
+  assert.match(html, /Background Model 레이어 추가/);
+  assert.match(hostScript, /hideImportedLayer === true/);
+  assert.doesNotMatch(panelScript, /saveBackgroundOutput|GraXpert Background Models/);
   assert.doesNotMatch(manifest + panelScript + editorScript, /com\.openai\.graxpertps/);
   assert.doesNotMatch(manifest + panelScript + editorScript, /com\.drmedia\.graxpertps\.sampleeditor/);
   assert.doesNotMatch(manifest + panelScript + installer, /sample-editor-window\.html/);
@@ -543,13 +590,13 @@ function testHtmlAndInstaller() {
   assert.match(panelScript, /neutral_editor_ready\.json/);
   assert.match(editorScript, /gradient_editor_command\.json/);
   assert.match(editorScript, /neutral_editor_command\.json/);
-  assert.match(readme, /v0\.9\.0/);
+  assert.match(readme, /v0\.9\.1/);
   assert.match(html, /<option selected>No Stretch<\/option>/);
   assert.match(html, /id="smoothingValue"[^>]*>0\.00<\/span>/);
   assert.match(html, /id="smoothing"[^>]*value="0\.00"/);
   assert.match(html, /id="openSampleWindow"/);
-  assert.match(html, /id="generateSamples"[^>]*>포인트 자동 생성<\/button>/);
-  assert.match(html, /id="openSampleWindow"[^>]*>Gradient Editor<\/button>/);
+  assert.match(html, /id="generateSamples"[^>]*>자동 생성<\/button>/);
+  assert.match(html, /id="openSampleWindow"[^>]*>Gradient Editor 열기<\/button>/);
   assert.match(html, /id="sampleMainDetails" class="hidden" aria-hidden="true"/);
   assert.doesNotMatch(html, /id="sampleAdvancedToggle"/);
   assert.match(html, /id="samplePreviewDisplayState" class="hidden" aria-hidden="true"/);
@@ -572,7 +619,7 @@ function testHtmlAndInstaller() {
   assert.doesNotMatch(html + editorHtml + neutralEditorHtml, /Sample Radius|포인트 반경/);
   assert.doesNotMatch(html, /id="tabStretch"/);
   assert.doesNotMatch(html, /id="stretchPanel"/);
-  assert.match(html, /name="scope" value="sky"/);
+  assert.doesNotMatch(html, /name="scope"/);
   assert.match(html, /id="cancelRunBtn"[^>]*>처리 취소<\/button>/);
   assert.match(html, /id="settingsBtn"[^>]*title="설정"/);
   assert.match(html, /class="settings-icon"[^>]*>&#9881;&#65038;<\/span>/);
@@ -582,16 +629,20 @@ function testHtmlAndInstaller() {
   assert.match(panelScript, /cpModule\.spawn/);
   assert.doesNotMatch(panelScript, /cp\.execFile/);
   assert.match(panelScript, /runtimeCard\.className = "card"/);
-  assert.match(html, /name="scope" value="layer" checked/);
-  assert.doesNotMatch(html, /name="scope" value="document" checked/);
-  assert.match(html, /<span>보이는 레이어<\/span>/);
-  assert.match(html, /<span>현재 레이어<\/span>/);
-  assert.match(html, /<span>지정 영역<\/span>/);
-  assert.match(html, /id="scopeHint"/);
-  assert.match(panelScript, /onmouseenter/);
-  assert.match(panelScript, /restoreSelectedScopeDescription/);
+  ["scopeCard", "backgroundTargetValue", "backgroundTargetBadge", "backgroundTargetHint",
+    "backgroundMaskValue", "backgroundMaskBadge", "backgroundMaskHint"].forEach(function(id) {
+    assert.match(html, new RegExp('id="' + id + '"'));
+  });
+  assert.match(html, /id="backgroundTargetValue"[^>]*>현재 레이어<\/div>/);
+  assert.match(html, />Sample Point 영역<\/div>/);
+  assert.match(panelScript, /refreshBackgroundScopeStatus/);
+  assert.match(panelScript, /현재 레이어 전체 · 결과 마스크 없음/);
+  assert.match(panelScript, /if \(command\.action === "add"\)[\s\S]*?addSamplePointOriginal\(point\)/);
+  assert.doesNotMatch(panelScript, /restoreSelectedScopeDescription/);
   assert.match(html, /name="gradientMethod" value="AI" checked><span>AI 자동<\/span>/);
-  assert.match(html, /name="gradientMethod" value="sample"><span>배경 포인트<\/span>/);
+  assert.match(html, /name="gradientMethod" value="sample"><span>Sample Point<\/span>/);
+  assert.match(html, /id="gradientMethodHint"/);
+  assert.match(panelScript, /Gradient Editor에서 확인한 Sample Point로 배경 Gradient를 계산합니다/);
   assert.match(html, /id="gradientCard" class="card"/);
   assert.doesNotMatch(html, /name="gradientMethod" value="(?:RBF|Splines|Kriging)"/);
   assert.match(html, /id="gradientInterpolation"/);
@@ -605,12 +656,34 @@ function testHtmlAndInstaller() {
   assert.match(panelScript, /return gradientInterpolation \? gradientInterpolation\.value : "RBF"/);
   assert.match(panelScript, /gradientAdvancedOpen/);
   assert.match(html, /id="denoiseAdvancedBody" class="denoise-advanced-body hidden"/);
+  ["denoiseScopeCard", "denoiseTargetValue", "denoiseTargetBadge", "denoiseTargetHint",
+    "denoiseMaskValue", "denoiseMaskBadge", "denoiseMaskHint"].forEach(function(id) {
+    assert.match(html, new RegExp('id="' + id + '"'));
+  });
+  assert.match(panelScript, /mode === "background" \? "layer"/);
+  assert.match(panelScript, /var contextScope = \(mode === "background" \|\| mode === "denoise"\) \? "layer-auto"/);
+  assert.match(panelScript, /GX_exportInput\([\s\S]*?contextScope/);
+  assert.match(panelScript, /refreshDenoiseScopeStatus/);
+  assert.match(panelScript, /function setProcessingContextText/);
+  assert.doesNotMatch(panelScript, /var layerName = "현재 선택한 레이어"/);
+  assert.doesNotMatch(panelScript, /denoiseTargetValue\.textContent = "현재 선택한 레이어"/);
+  assert.match(panelScript, /현재 레이어 마스크 복사/);
+  assert.match(hostScript, /scope === "layer-auto" && \(GX_hasSelection\(original\) \|\| GX_activeLayerHasMask\(\)\)/);
+  assert.match(hostScript, /scope === "layer" \|\| scope === "layer-sky" \|\| scope === "layer-auto"/);
   assert.match(html, /id="denoiseAdvancedToggle"[^>]*>상세 설정 보기<\/button>/);
   assert.ok(html.indexOf('id="denoiseAdvancedBody"') < html.indexOf('id="denoiseAdvancedToggle"'));
   assert.match(panelScript, /denoiseAdvancedOpen/);
   assert.match(panelScript, /setAdvancedSection/);
   assert.match(panelScript, /placeSampleCardInside\(gradientCard, gradientAdvancedToggle\)/);
-  assert.match(html, /id="tabNeutral"/);
+  assert.match(html, /id="tabNeutral" class="tab hidden" aria-hidden="true" tabindex="-1"/);
+  assert.match(html, /id="helpBtn"[^>]*>\?<\/button>/);
+  assert.match(html, /id="quickHelp" class="quick-help hidden"/);
+  assert.match(html, /Background Extraction:<\/strong> 선택 영역이나 현재 레이어 마스크는 Sample Point 분석 범위로만 사용/);
+  assert.match(html, /문제가 있을 때/);
+  assert.match(panelScript, /function setHelpMode\(open\)/);
+  assert.match(panelScript, /runtimeCard\.className = "card hidden"/);
+  assert.match(panelScript, /var COLOR_CALIBRATION_ENABLED = false/);
+  assert.match(panelScript, /m === "neutralize" && !COLOR_CALIBRATION_ENABLED/);
   assert.ok(html.indexOf('id="tabBg"') < html.indexOf('id="tabNeutral"'));
   assert.ok(html.indexOf('id="tabNeutral"') < html.indexOf('id="tabDn"'));
   assert.match(html, /id="neutralPanel" class="hidden"/);
@@ -618,7 +691,7 @@ function testHtmlAndInstaller() {
   assert.match(html, /id="neutralScopeLayer" type="radio" name="neutralScope" value="layer" checked/);
   assert.match(html, /id="neutralSkyOnly" type="radio" name="neutralScope" value="sky">/);
   assert.match(html, /id="neutralMaskStatus"/);
-  assert.match(html, /GraXpert CLI 3\.0\.x · v0\.9\.0/);
+  assert.match(html, /GraXpert CLI 3\.0\.x · v0\.9\.1/);
   assert.match(html, /<span>현재 레이어<\/span>/);
   assert.match(html, /<span>지정 영역<\/span>/);
   assert.match(html, /분석: 확인 전 · 결과: 현재 레이어 전체/);
@@ -666,7 +739,67 @@ function testHtmlAndInstaller() {
   assert.match(neutralEditorHtml, /id="pointsPerRow"[^>]*value="15"/);
   assert.match(neutralEditorHtml, /id="gridTolerance"[^>]*value="1\.0"/);
   assert.match(editorHtml, /id="qualityPreset"/);
+  assert.match(editorHtml, /value="off">사용 안 함/);
+  assert.match(html, /name="qualityPreset" value="off"/);
+  assert.match(editorHtml, /id="selectionOnlyLabel"/);
+  assert.match(editorHtml, /id="gridStatus" class="grid-status hidden">포인트 재생성 필요/);
+  ["zoomOut", "zoomValue", "zoomIn", "zoomFit", "zoomActual"].forEach(function(id) {
+    assert.match(editorHtml, new RegExp('id="' + id + '"'));
+  });
+  ["viewOriginal", "viewResult", "resultStatus", "resultBusyOverlay", "generateResult", "cancelResult", "applyResult"].forEach(function(id) {
+    assert.match(editorHtml, new RegExp('id="' + id + '"'));
+  });
+  assert.match(editorHtml, /Preview 100%/);
+  assert.match(editorHtml, /적합\(사용\)/);
+  assert.match(editorHtml, /주의\(미사용\)/);
+  assert.match(editorHtml, /제외\(미사용\)/);
+  assert.match(editorScript, /현재 레이어 마스크 영역만/);
+  assert.match(editorScript, /current\.gridDirty \? "grid-status" : "grid-status hidden"/);
+  assert.match(editorStyle, /\.grid-status/);
+  assert.match(editorStyle, /\.zoom-controls/);
+  assert.match(editorStyle, /\.result-toolbar/);
+  assert.match(editorStyle, /\.result-busy-overlay/);
+  assert.match(editorStyle, /@keyframes busySpin/);
+  assert.match(editorScript, /busy \? "처리 중…"/);
+  assert.match(editorStyle, /#sampleCanvas\.panning/);
+  assert.match(editorScript, /function fitZoomScale/);
+  assert.match(editorScript, /function setZoom/);
+  assert.match(editorScript, /addEventListener\("wheel"/);
+  assert.match(editorScript, /Space\+드래그/);
+  assert.match(editorScript, /lastStateFileStamp/);
+  assert.match(editorScript, /fileState\.mtimeMs/);
+  assert.match(editorScript, /nextState\.revision !== state\.revision/);
+  assert.match(editorScript, /addEventListener\("focus", writeReadyFile\)/);
+  assert.match(editorScript, /setInterval\(writeReadyFile, 5000\)/);
+  assert.match(editorScript, /dispatchCommand\("previewGradient"\)/);
+  assert.match(editorScript, /dispatchCommand\("applyGradient"\)/);
+  assert.match(editorScript, /dispatchCommand\("releaseGradientResult"\)/);
+  assert.doesNotMatch(editorScript, /setInterval\(writeReadyFile, 400\)/);
+  assert.match(panelScript, /gradientGridDirty = samplePoints\.length > 0/);
+  assert.match(panelScript, /if \(!options\.neutral\) gradientGridDirty = false/);
+  assert.match(panelScript, /lastSampleCommandFileStamp/);
+  assert.match(panelScript, /commandFileState\.mtimeMs/);
+  assert.match(panelScript, /function gradientResultSignature/);
+  assert.match(panelScript, /function createGradientResultPreview/);
+  assert.match(panelScript, /function applyGradientResultPreview/);
+  assert.match(panelScript, /GX_exportInput\([\s\S]*?"layer","layer-auto"/);
+  assert.match(panelScript, /function createTiffPreviewBmp/);
+  assert.doesNotMatch(panelScript, /GX_exportProcessedPreview/);
+  assert.match(panelScript, /GX_validateProcessingContext/);
+  assert.match(hostScript, /function GX_exportProcessedPreview/);
+  assert.match(hostScript, /function GX_validateProcessingContext/);
+  assert.match(panelScript, /초록색 적합 Point만 사용하며 주황색 주의와 빨간색 제외 Point는 사용하지 않습니다/);
+  assert.doesNotMatch(panelScript, /빨간 Point는 제외됨/);
   assert.match(editorHtml, /class="editor-button-group"/);
+  assert.match(editorHtml, /id="showPoints"[^>]*checked/);
+  assert.match(editorScript, /if \(pointsVisible\)/);
+  assert.match(editorScript, /포인트가 숨겨져 있습니다/);
+  assert.match(editorStyle, /\.point-visibility/);
+  assert.match(editorStyle, /#sampleCanvas\.point-dragging/);
+  assert.match(editorStyle, /min-width:1000px[\s\S]*?overflow-x:hidden/);
+  assert.match(editorScript, /action:"move"/);
+  assert.match(panelScript, /function moveSamplePointOriginal/);
+  assert.match(panelStyle, /\.quality-preset\s*\{[^}]*repeat\(4, 1fr\)/);
   assert.match(editorStyle, /\.toolbar\s*\{[\s\S]*?flex-wrap:nowrap/);
   assert.match(editorStyle, /\.editor-button-group\s*\{[\s\S]*?flex-wrap:nowrap/);
   assert.match(editorHtml, /class="editor-button-group"[\s\S]*id="autoSamples"[\s\S]*id="undoSample"[\s\S]*id="clearSamples"/);
@@ -679,6 +812,10 @@ function testHtmlAndInstaller() {
   assert.match(panelScript, /qualityPreset: selected\("qualityPreset"\) \|\| "standard"/);
   assert.match(editorScript, /GX_SAMPLE_EDITOR_BRIDGE/);
   assert.match(editorScript, /closeExtension/);
+  assert.match(editorScript, /invokeSync\("setWindowTitle", WINDOW_TITLE\)/);
+  assert.match(editorScript, /GraXpert Gradient Editor/);
+  assert.match(editorScript, /closeEditorWindow\(false\)/);
+  assert.match(editorScript, /resultAppliedRevision/);
   assert.match(installer, /if defined REG_FAILED/);
   assert.match(installer, /REGEXE%" query .*PlayerDebugMode/i);
   assert.match(installer, /Could not remove the previous installation/);
@@ -699,11 +836,18 @@ function testHtmlAndInstaller() {
   assert.match(uninstaller, /for %%V in \(9 10 11 12 13 14 15\)/);
   assert.doesNotMatch(uninstaller, /rmdir \/S \/Q "%CEP_ROOT%"/i);
   assert.match(readme, /Uninstall_Windows\.bat \/remove-debug/);
+  assert.match(readme, /USER_GUIDE_KO\.txt/);
+  assert.match(userGuide, /GraXpert Photoshop Panel v0\.9\.1 사용자 설명서/);
+  assert.match(userGuide, /Background Extraction — Sample Point/);
+  assert.match(userGuide, /Noise Reduction을 시작할 때 Photoshop 선택 영역이 있으면/);
+  assert.match(userGuide, /Color Calibration은 이번 배포 화면에 표시되지 않습니다/);
   assert.match(integrationRunner, /Photoshop\.Application/);
   assert.match(integrationRunner, /Photoshop_Integration_Result\.txt/);
   assert.match(integrationScript, /GX_exportInput\(tempTiff\.fsName, "sky"\)/);
   assert.match(integrationScript, /GX_exportInput\(tempTiff\.fsName, "layer-sky"\)/);
   assert.match(integrationScript, /GX_importResultById/);
+  assert.match(integrationScript, /GX_exportProcessedPreview/);
+  assert.match(integrationScript, /GX_validateProcessingContext/);
   assert.match(integrationScript, /문서 이름 fallback이 차단되지 않았습니다/);
   assert.doesNotMatch(fs.readFileSync(path.join(panelDir, "host", "host.jsx"), "utf8"), /GX_findDocumentByName/);
   assert.match(integrationScript, /GX_exportSamplePreview/);
@@ -835,6 +979,22 @@ function testMalformedImageGuards(api) {
   var unsafeOutput = path.join(testDir, "unsafe-dimensions.tif");
   assert.throws(function () { api.convertFitsToTiff(unsafeFits, unsafeOutput); }, /FITS 크기|안전한 정수/);
   assert.strictEqual(fs.existsSync(unsafeOutput), false);
+}
+
+function testTiffPreviewBmp(api) {
+  var source = createUint16RgbTiff(api, "preview-bmp-source", 2, 2, [
+    65535, 0, 0, 0, 65535, 0,
+    0, 0, 65535, 65535, 65535, 65535
+  ]);
+  var output = path.join(testDir, "preview-bmp-output.bmp");
+  var result = api.createTiffPreviewBmp(source, output, 2, 2);
+  var bmp = fs.readFileSync(output);
+  assert.strictEqual(bmp.toString("ascii", 0, 2), "BM");
+  assert.strictEqual(bmp.readInt32LE(18), 2);
+  assert.strictEqual(bmp.readInt32LE(22), 2);
+  assert.strictEqual(bmp.readUInt16LE(28), 24);
+  assert.strictEqual(result.width, 2);
+  assert.strictEqual(result.height, 2);
 }
 
 function readTiffPreviewForAnalysis(api, file, maxWidth, maxHeight, skyFraction) {
@@ -1009,6 +1169,11 @@ try {
     analysisContext:"selection:1,2,90,40"
   };
   assert.strictEqual(api.previewContextError(validPreviewContext, validExportContext, "background", "layer"), "");
+  assert.strictEqual(api.previewRegionSource({ analysisContext:"selection:1,2,90,40" }), "selection");
+  assert.strictEqual(api.previewRegionSource({ analysisContext:"layer-mask:1,2,90,40" }), "layer-mask");
+  assert.strictEqual(api.previewRegionSource({ analysisContext:"none:" }), "none");
+  assert.strictEqual(api.previewRegionStatusText({ analysisContext:"selection:1,2,90,40" }), "지정 영역: Photoshop 선택 영역");
+  assert.strictEqual(api.previewRegionStatusText({ analysisContext:"layer-mask:1,2,90,40" }), "지정 영역: 현재 레이어 마스크");
   assert.match(api.previewContextError(validPreviewContext,
     Object.assign({}, validExportContext, { sourceLayerId:43 }), "background", "layer"), /현재 레이어/);
   assert.match(api.previewContextError(validPreviewContext,
@@ -1257,9 +1422,12 @@ try {
 
   var backgroundSource = createFits("output_123_background", -32, [1, 1], [0.5]);
   assert.strictEqual(api.findBackgroundOutput(path.join(testDir, "output_123")), backgroundSource);
-  var saved = api.saveBackgroundOutput(backgroundSource, "M31:stack.psd", 123);
-  assert.strictEqual(path.basename(saved), "M31_stack_GraXpert_background_123.fits");
-  assert.ok(fs.existsSync(saved));
+  var backgroundImport = api.prepareBackgroundModelImport(backgroundSource, testDir, 123);
+  assert.strictEqual(path.basename(backgroundImport), "photoshop_background_123.tif");
+  assert.ok(fs.existsSync(backgroundImport));
+  assert.ok(fs.existsSync(backgroundSource));
+  api.cleanupBackgroundModelFiles(backgroundSource, backgroundImport);
+  assert.ok(!fs.existsSync(backgroundImport));
   assert.ok(!fs.existsSync(backgroundSource));
 
   var preferencesFile = path.join(testDir, "preferences.json");
@@ -1320,7 +1488,11 @@ try {
   var qualityStats = api.calculateLuminanceStats(qualityImage);
   var qualityState = { originalWidth: 20, originalHeight: 20 };
   assert.strictEqual(api.analyzeSamplePoint({ x: 4, y: 4 }, 2, qualityImage, qualityStats, qualityState).status, "good");
-  assert.strictEqual(api.analyzeSamplePoint({ x: 16, y: 16 }, 2, qualityImage, qualityStats, qualityState).status, "exclude");
+  var smoothBrightQuality = api.analyzeSamplePoint(
+    { x: 16, y: 16 }, 2, qualityImage, qualityStats, qualityState
+  );
+  assert.strictEqual(smoothBrightQuality.status, "good");
+  assert.strictEqual(smoothBrightQuality.reason, "부드러운 광해 배경");
 
   var selectedStatsMask = new Uint8ClampedArray(20 * 20 * 4);
   for (var selectedStatsPixel=0; selectedStatsPixel<20 * 20; selectedStatsPixel++) {
@@ -1407,6 +1579,13 @@ try {
   );
   assert.notStrictEqual(relaxedStarQuality.status, "exclude", JSON.stringify(relaxedStarQuality));
   assert.strictEqual(strictStarQuality.status, "exclude");
+  var bypassedStarQuality = api.analyzeSamplePoint(
+    { x: 15, y: 15 }, 8, starImage, api.calculateLuminanceStats(starImage),
+    { originalWidth: 31, originalHeight: 31 }, api.getQualityConfig("off")
+  );
+  assert.strictEqual(bypassedStarQuality.status, "good");
+  assert.strictEqual(bypassedStarQuality.qualityBypassed, true);
+  assert.strictEqual(api.getQualityConfig("off").name, "off");
   assert.ok(api.getQualityConfig("relaxed").starExclude > api.getQualityConfig("standard").starExclude);
   assert.ok(api.getQualityConfig("strict").starExclude < api.getQualityConfig("standard").starExclude);
   assert.strictEqual(api.normalizePointsPerRow(2), 4);
@@ -1441,6 +1620,10 @@ try {
   api.setSelectionOnlyForTest(true);
   assert.strictEqual(api.addSamplePointAt({ width:100, height:70 }, { x:75, y:35 }), false);
   assert.strictEqual(api.addSamplePointAt({ width:100, height:70 }, { x:25, y:35 }), true);
+  api.setSamplePoints([]);
+  assert.strictEqual(api.addSamplePointOriginal({ x:750, y:350 }), false);
+  assert.strictEqual(api.addSamplePointOriginal({ x:5, y:5 }), false);
+  assert.strictEqual(api.addSamplePointOriginal({ x:250, y:350 }), true);
   api.setSamplePoints([
     { x:100, y:100, quality:{ status:"good" } },
     { x:200, y:100, quality:{ status:"warning" } },
@@ -1551,8 +1734,10 @@ try {
   );
   api.setSampleGenerationOptionsForTest(15, 1.0);
   var toleranceGrid = api.generateAutomaticSamplePoints({ selectionOnly:false });
-  assert.ok(toleranceGrid.gridRejectedCells > 0);
-  assert.ok(toleranceGrid.points.every(function(point) { return point.x < 600; }));
+  assert.ok(toleranceGrid.smoothLightPollutionAccepted > 0);
+  assert.ok(toleranceGrid.points.some(function(point) {
+    return point.x >= 600 && point.quality && point.quality.reason === "부드러운 광해 배경";
+  }));
 
   var coreImage = syntheticQualityImage(function(x, y) {
     var dx = x - 15, dy = y - 15;
@@ -1564,6 +1749,22 @@ try {
   );
   assert.strictEqual(coreQuality.status, "exclude");
   assert.strictEqual(coreQuality.reason, "밝은 중심 구조");
+
+  var moveImage = syntheticQualityImage(function() { return 20; });
+  api.setPreviewAnalysisForTest(
+    { originalWidth:31, originalHeight:31, previewWidth:31, previewHeight:31, hasSelection:false },
+    moveImage, null
+  );
+  api.setSelectionOnlyForTest(false);
+  api.setSampleGenerationOptionsForTest(15, 1.0, 4);
+  api.setSamplePoints([{ x:15, y:15, quality:{ status:"warning", reason:"이동 전" } }]);
+  assert.strictEqual(api.moveSamplePointOriginal(0, { x:10, y:10 }), true);
+  var movedPoint = api.usableSamplePoints(false)[0];
+  assert.strictEqual(movedPoint.x, 10);
+  assert.strictEqual(movedPoint.y, 10);
+  assert.strictEqual(movedPoint.quality.status, "good");
+  assert.strictEqual(api.moveSamplePointOriginal(0, { x:1, y:1 }), false);
+  assert.strictEqual(api.usableSamplePoints(false)[0].x, 10);
 
   var preferredCenter = { adaptiveOffset: 0, quality: { status: "good", score: 72 } };
   var higherOffset = { adaptiveOffset: 1, quality: { status: "good", score: 90 } };
@@ -1579,6 +1780,7 @@ try {
   testHtmlAndInstaller();
   testGraXpertProcessController(api);
   testMalformedImageGuards(api);
+  testTiffPreviewBmp(api);
   console.log("All GraXpert panel tests passed.");
   cleanup();
   process.exit(0);

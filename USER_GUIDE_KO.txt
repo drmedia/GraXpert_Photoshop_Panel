@@ -1,0 +1,207 @@
+GraXpert Photoshop Panel v0.9.1 사용자 설명서
+================================================
+
+1. 패널 소개
+------------
+GraXpert stand-alone CLI를 Photoshop 안에서 실행하고 처리 결과를 새 레이어로
+가져오는 Windows용 CEP 패널입니다. 원본 레이어의 픽셀은 직접 변경하지 않습니다.
+
+이번 v0.9.1에서 사용할 수 있는 작업:
+- Background Extraction
+- Noise Reduction
+
+Color Calibration은 이번 배포 화면에 표시되지 않습니다.
+
+
+2. 설치 전 준비
+--------------
+1) Windows용 GraXpert를 설치합니다.
+2) Photoshop을 완전히 종료합니다.
+3) 압축을 푼 폴더에서 Install_Windows.bat를 실행합니다.
+4) 설치 결과가 모두 [OK]인지 확인합니다.
+5) Photoshop을 다시 실행합니다.
+6) Photoshop 메뉴에서 Window > Extensions (Legacy) > GraXpert를 엽니다.
+
+패널이 보이지 않거나 설치 오류가 발생하면 Photoshop을 종료한 뒤
+Diagnose_Install.bat를 실행합니다.
+
+
+3. 최초 설정
+------------
+1) 패널 오른쪽 위의 설정 아이콘을 누릅니다.
+2) GPU acceleration 사용 여부를 선택합니다.
+3) GraXpert 실행 파일 경로를 확인합니다.
+4) 자동으로 찾지 못했다면 [찾기]로 GraXpert.exe를 선택합니다.
+5) [저장]을 누른 뒤 설정 아이콘을 다시 눌러 작업 화면으로 돌아옵니다.
+
+예시 경로:
+%LOCALAPPDATA%\Programs\GraXpert\GraXpert.exe
+
+패널은 이 기본 설치 위치를 자동으로 확인합니다. 파일이 없을 때는 PATH에
+등록된 GraXpert.exe를 사용하거나 사용자가 선택한 전체 경로를 사용합니다.
+
+
+4. 작업 전 확인
+--------------
+- 처리할 Photoshop 문서를 엽니다.
+- 처리할 픽셀 레이어를 선택합니다.
+- 전체 프레임 크기의 RGB 레이어 사용을 권장합니다.
+- 결과가 만들어질 때까지 문서, 캔버스 크기와 선택 레이어를 변경하지 마세요.
+- 처리가 끝날 때까지 GraXpert 패널을 닫지 마세요.
+
+결과 레이어는 처리 시작 시 선택했던 레이어 바로 위에 추가됩니다.
+
+
+5. Background Extraction — AI 자동
+----------------------------------
+빠르게 Gradient를 제거할 때 사용하는 기본 방식입니다.
+
+1) 처리할 레이어를 선택합니다.
+2) [Background Extraction] 탭을 엽니다.
+3) 처리 대상이 현재 레이어로 표시되는지 확인합니다.
+4) 방식에서 [AI 자동]을 선택합니다.
+5) 필요한 경우 [상세 설정 보기]를 열어 설정을 조정합니다.
+6) 아래쪽 실행 버튼을 누릅니다.
+7) 완료 메시지와 새 Gradient 결과 레이어를 확인합니다.
+
+Photoshop 선택 영역이나 현재 레이어 마스크가 있더라도 Background Extraction
+결과 레이어에는 마스크를 만들지 않습니다. 해당 영역은 Sample Point 방식에서
+배경 포인트를 생성하고 분석할 범위로만 사용됩니다.
+
+
+6. Background Extraction — Sample Point
+---------------------------------------
+별, 은하, 성운, 산이나 건물 등을 피해서 실제 배경 위치를 직접 확인하고 싶을 때
+사용합니다.
+
+1) 처리할 레이어를 선택합니다.
+2) 필요하면 Photoshop에서 분석할 영역을 선택합니다.
+3) 방식에서 [Sample Point]를 선택합니다.
+4) [자동 생성]으로 초기 포인트를 만들거나 [Gradient Editor 열기]를 누릅니다.
+5) Gradient Editor에서 포인트 분포와 품질을 확인합니다.
+6) 필요한 포인트를 추가, 삭제 또는 이동합니다.
+7) [결과 미리보기 생성]으로 전체 해상도 결과를 계산합니다.
+8) 원본/결과 버튼으로 비교합니다.
+9) 결과가 적절하면 [Photoshop에 적용]을 누릅니다.
+
+Photoshop 적용이 성공하면 Gradient Editor는 자동으로 닫힙니다.
+
+
+7. Gradient Editor 사용법
+-------------------------
+포인트 색상:
+- 초록색: 적합, Gradient 계산에 사용
+- 주황색: 주의, 현재 Gradient 계산에는 사용하지 않음
+- 빨간색: 제외, Gradient 계산에 사용하지 않음
+
+기본 조작:
+- 빈 위치 왼쪽 클릭: Sample Point 추가
+- 포인트 드래그: 다른 위치로 이동
+- 포인트 또는 Sample 사각 영역 오른쪽 클릭: 포인트 삭제
+- [포인트 표시]: 원본과 결과 비교 시 포인트 표시/숨김
+- [-], [+], [화면 맞춤], [Preview 100%]: 확대/축소
+- Space+드래그: 확대 상태에서 화면 이동
+
+주요 설정:
+- 행당 포인트: 가로 한 줄에 배치할 Grid 포인트 수, 기본값 15
+- Grid Tolerance: 높을수록 더 밝은 배경 후보를 허용, 기본값 1.0
+- Sample Size: 포인트 주변 분석 반경, 기본값 25px
+- 추가 품질 검사: 사용 안 함/느슨함/표준/엄격함
+- Preview Stretch: 표시용 Preview만 밝게 하며 실제 선형 결과에는 적용하지 않음
+- Saturation: Preview 표시 채도만 변경
+
+은하, 성운이나 밝은 별 위의 포인트는 배경 모델을 왜곡할 수 있습니다. 광해가
+있는 하늘도 배경의 일부이므로 완전히 제외하기보다는 천체 구조를 피하면서 화면
+전체에 고르게 분포시키는 것이 좋습니다.
+
+주황색 포인트를 사용하려면 포인트를 더 적합한 배경 위치로 이동하거나 추가 품질
+검사를 느슨하게 조정합니다. [사용 안 함]은 패널의 추가 검사를 생략하고 GraXpert
+Grid Tolerance만 적용하므로 결과 Preview를 더 주의해서 확인하세요.
+
+
+8. Background Extraction 상세 설정
+-----------------------------------
+- 포인트 보간: Sample Point 사이의 Gradient 계산 방식
+  · RBF: 일반적인 권장값
+  · Splines/Kriging: 이미지 특성에 따라 비교 사용
+- Smoothing: 배경 모델을 부드럽게 만드는 정도, 기본값 0.00
+- Correction
+  · Subtraction: 광해나 가산형 Gradient 제거에 일반적으로 사용
+  · Division: 비네팅처럼 곱셈형 불균일 보정에 사용
+- Background Model 레이어 추가: 계산된 전체 해상도 배경 모델을 숨김 레이어로 추가
+
+Background Model을 추가한 경우 레이어 순서:
+1) Gradient 결과
+2) GraXpert - Background Model (숨김)
+3) 처리한 원본 레이어
+
+Background Model은 로컬 Documents 폴더에 별도 저장하지 않습니다. 레이어를
+추가하면 Photoshop 문서의 메모리 사용량과 PSD/PSB 저장 용량이 증가합니다.
+
+
+9. Noise Reduction
+------------------
+1) 노이즈를 줄일 레이어를 선택합니다.
+2) [Noise Reduction] 탭을 엽니다.
+3) 처리 대상과 결과 마스크 상태를 확인합니다.
+4) 기본값으로 실행하거나 [상세 설정 보기]를 엽니다.
+5) 아래쪽 실행 버튼을 누릅니다.
+6) 선택했던 레이어 바로 위에 추가된 GraXpert Denoise 결과를 확인합니다.
+
+상세 설정:
+- Denoise Strength: 노이즈 감소 강도, 기본값 0.50
+- Batch Size: GPU 처리 묶음 크기, 기본값 4
+
+Noise Reduction을 시작할 때 Photoshop 선택 영역이 있으면 그 영역을 결과 레이어
+마스크로 사용합니다. 선택 영역이 없고 현재 레이어 마스크가 있으면 해당 마스크를
+결과 레이어에 복사합니다. 둘 다 없으면 결과 마스크를 만들지 않습니다.
+
+GPU 메모리 부족 또는 OOM 오류가 발생하면 Batch Size를 2 또는 1로 낮추세요.
+
+
+10. 권장 작업 순서
+------------------
+1) Background Extraction
+2) BlurXTerminator 등 필요한 선형 처리
+3) Noise Reduction
+4) 다른 패널 또는 Photoshop에서 Stretch
+
+항상 원본 선형 레이어를 남겨 두고 새 결과 레이어에서 다음 작업을 진행하는 것을
+권장합니다.
+
+
+11. 문제 해결
+-------------
+패널이 Photoshop 메뉴에 없음:
+- Photoshop을 완전히 종료하고 Install_Windows.bat를 다시 실행합니다.
+- Diagnose_Install.bat 결과에서 CEP 경로와 PlayerDebugMode를 확인합니다.
+
+GraXpert 실행 파일을 찾지 못함:
+- 설정 화면에서 GraXpert.exe 전체 경로를 선택하고 저장합니다.
+
+결과를 가져오지 못함:
+- 처리 중 원본 문서나 선택 레이어를 닫거나 삭제하지 않았는지 확인합니다.
+- 캔버스 크기를 변경하지 않았는지 확인합니다.
+- 오류 메시지 전체와 %TEMP%\GraXpert_Photoshop의 진단 파일을 확인합니다.
+
+Gradient 결과가 천체까지 어둡게 만듦:
+- Sample Point 방식으로 전환합니다.
+- 은하, 성운, 밝은 별 위의 포인트를 삭제하거나 배경 위치로 이동합니다.
+- 포인트가 이미지 한쪽에 몰리지 않도록 전체 배경에 고르게 배치합니다.
+- 원본/결과 Preview를 비교한 뒤 Photoshop에 적용합니다.
+
+처리가 느리거나 메모리가 부족함:
+- 다른 큰 문서를 닫습니다.
+- Noise Reduction Batch Size를 낮춥니다.
+- 필요하지 않으면 Background Model 레이어 추가를 끕니다.
+
+
+12. 제거
+--------
+1) Photoshop을 완전히 종료합니다.
+2) Uninstall_Windows.bat를 실행합니다.
+
+PlayerDebugMode는 다른 CEP 확장에서도 사용할 수 있으므로 기본 제거에서는
+보존됩니다. 레지스트리 값까지 제거하려면 다음 명령을 사용합니다.
+
+Uninstall_Windows.bat /remove-debug

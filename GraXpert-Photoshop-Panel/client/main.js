@@ -11,12 +11,17 @@
 
   var mode = "background";
   var settingsOpen = false;
+  var helpOpen = false;
   var settingsBtn = document.getElementById("settingsBtn");
+  var helpBtn = document.getElementById("helpBtn");
+  var quickHelp = document.getElementById("quickHelp");
+  var closeQuickHelp = document.getElementById("closeQuickHelp");
   var tabs = document.getElementById("tabs");
   var footer = document.getElementById("footer");
   var tabBg = document.getElementById("tabBg");
   var tabDn = document.getElementById("tabDn");
   var tabNeutral = document.getElementById("tabNeutral");
+  var COLOR_CALIBRATION_ENABLED = false;
   var bgPanel = document.getElementById("bgPanel");
   var gradientCard = document.getElementById("gradientCard");
   var dnPanel = document.getElementById("dnPanel");
@@ -50,6 +55,13 @@
   var selectionMask = null;
   var pendingNeutralAutoAnalysis = false;
   var pendingGradientAutoSamples = false;
+  var gradientGridDirty = false;
+  var sampleEditorNotice = "";
+  var gradientResultJob = null;
+  var gradientResultBusy = false;
+  var gradientResultContextValid = true;
+  var gradientResultMessage = "결과 미리보기 전";
+  var gradientResultAppliedRevision = 0;
   var pendingOpenSampleEditor = false;
   var neutralAutoReady = false;
   var neutralMaskStatus = document.getElementById("neutralMaskStatus");
@@ -61,6 +73,19 @@
   var denoiseAdvancedOpen = false;
   var denoiseAdvancedToggle = document.getElementById("denoiseAdvancedToggle");
   var denoiseAdvancedBody = document.getElementById("denoiseAdvancedBody");
+  var backgroundTargetValue = document.getElementById("backgroundTargetValue");
+  var backgroundTargetBadge = document.getElementById("backgroundTargetBadge");
+  var backgroundTargetHint = document.getElementById("backgroundTargetHint");
+  var backgroundMaskValue = document.getElementById("backgroundMaskValue");
+  var backgroundMaskBadge = document.getElementById("backgroundMaskBadge");
+  var backgroundMaskHint = document.getElementById("backgroundMaskHint");
+  var denoiseTargetValue = document.getElementById("denoiseTargetValue");
+  var denoiseTargetBadge = document.getElementById("denoiseTargetBadge");
+  var denoiseTargetHint = document.getElementById("denoiseTargetHint");
+  var denoiseMaskValue = document.getElementById("denoiseMaskValue");
+  var denoiseMaskBadge = document.getElementById("denoiseMaskBadge");
+  var denoiseMaskHint = document.getElementById("denoiseMaskHint");
+  var layerScopeRefreshPending = { background:false, denoise:false };
   var gradientSampleMethod = document.getElementById("gradientSampleMethod");
   var gradientInterpolation = document.getElementById("gradientInterpolation");
   var sampleScopeStatus = document.getElementById("sampleScopeStatus");
@@ -77,6 +102,7 @@
   var NEUTRAL_STATE_EVENT = "com.drmedia.graxpertps.neutraleditor.state";
   var NEUTRAL_COMMAND_EVENT = "com.drmedia.graxpertps.neutraleditor.command";
   var lastSampleCommandId = { background:"", neutralize:"" };
+  var lastSampleCommandFileStamp = { background:"", neutralize:"" };
   var activeGraXpertController = null;
   var GRAXPERT_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -124,7 +150,7 @@
           continue;
         }
 
-        if (!/^(input_|output_|photoshop_|conversion_|preview_|mask_|preferences_|stretch_|neutral_|gradient_editor_|sample_editor_).*/i.test(name)) continue;
+        if (!/^(input_|output_|photoshop_|conversion_|preview_|mask_|preferences_|stretch_|neutral_|editor_|gradient_editor_|sample_editor_).*/i.test(name)) continue;
 
         var fp = path.join(dir, name);
         try {
@@ -140,6 +166,7 @@
   cleanupOldTempFiles();
 
   function setMode(m) {
+    if (m === "neutralize" && !COLOR_CALIBRATION_ENABLED) m = "background";
     var modeChanged = mode !== m;
     mode = m;
     if (modeChanged && previewState) resetSamplePreview();
@@ -148,11 +175,13 @@
     var neutral = m === "neutralize";
     tabBg.className = bg ? "tab active" : "tab";
     tabDn.className = denoise ? "tab active" : "tab";
-    tabNeutral.className = neutral ? "tab active" : "tab";
+    tabNeutral.className = COLOR_CALIBRATION_ENABLED
+      ? (neutral ? "tab active" : "tab")
+      : "tab hidden";
     bgPanel.className = bg ? "" : "hidden";
     dnPanel.className = denoise ? "" : "hidden";
     neutralPanel.className = neutral ? "" : "hidden";
-    scopeCard.className = neutral ? "card hidden" : "card";
+    scopeCard.className = bg ? "card processing-context-card" : "card processing-context-card hidden";
     runtimeCard.className = "card hidden";
     runBtn.className = neutral ? "run-btn hidden" : "run-btn";
     if (neutral) document.getElementById("selectionOnly").checked = false;
@@ -163,21 +192,26 @@
     updateMethodUi();
     updateSampleScopeStatus();
     if (neutral) refreshNeutralMaskStatus();
+    if (bg) refreshBackgroundScopeStatus();
+    if (denoise) refreshDenoiseScopeStatus();
     clearMsg();
   }
 
   tabBg.onclick = function(){ setMode("background"); };
   tabDn.onclick = function(){ setMode("denoise"); };
-  tabNeutral.onclick = function(){ setMode("neutralize"); };
+  tabNeutral.onclick = function(){
+    if (COLOR_CALIBRATION_ENABLED) setMode("neutralize");
+  };
 
   function setSettingsMode(open) {
+    if (open && helpOpen) setHelpMode(false);
     settingsOpen = !!open;
     settingsBtn.className = settingsOpen ? "badge settings-btn active" : "badge settings-btn";
     settingsBtn.setAttribute("aria-pressed", settingsOpen ? "true" : "false");
     settingsBtn.title = settingsOpen ? "설정 닫기" : "설정";
     if (settingsOpen) {
       tabs.className = "tabs hidden";
-      scopeCard.className = "card hidden";
+      scopeCard.className = "card processing-context-card hidden";
       bgPanel.className = "hidden";
       dnPanel.className = "hidden";
       neutralPanel.className = "hidden";
@@ -196,8 +230,42 @@
 
   settingsBtn.onclick = function() { setSettingsMode(!settingsOpen); };
 
+  function setHelpMode(open) {
+    if (!helpBtn || !quickHelp) return;
+    if (open && settingsOpen) setSettingsMode(false);
+    helpOpen = !!open;
+    quickHelp.className = open ? "quick-help" : "quick-help hidden";
+    helpBtn.className = open ? "badge help-btn active" : "badge help-btn";
+    helpBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) {
+      tabs.className = "tabs hidden";
+      scopeCard.className = "card processing-context-card hidden";
+      bgPanel.className = "hidden";
+      dnPanel.className = "hidden";
+      neutralPanel.className = "hidden";
+      if (sampleCard) sampleCard.className = "card hidden";
+      runtimeCard.className = "card hidden";
+      runBtn.className = "run-btn hidden";
+      document.getElementById("progressWrap").className = "progress-wrap hidden";
+      if (footer) footer.className = "footer hidden";
+      clearMsg();
+      return;
+    }
+    if (!settingsOpen) {
+      tabs.className = "tabs";
+      if (footer) footer.className = "footer";
+      setMode(mode);
+    }
+  }
+
+  helpBtn.onclick = function() {
+    setHelpMode(!helpOpen);
+  };
+  closeQuickHelp.onclick = function() { setHelpMode(false); };
+
   smoothing.oninput = function(){
     document.getElementById("smoothingValue").textContent = Number(this.value).toFixed(2);
+    dispatchSampleEditorState();
   };
 
   strength.oninput = function(){
@@ -218,6 +286,10 @@
     if (sampleCard && mode === "background") placeSampleCardInside(gradientCard, gradientAdvancedToggle);
     if (sampleCard && mode === "neutralize") placeSampleCardInside(neutralPointSlot);
     var sampleBasedGradient = mode === "background" && currentGradientMethod() !== "AI";
+    var gradientMethodHint = document.getElementById("gradientMethodHint");
+    if (gradientMethodHint) gradientMethodHint.textContent = sampleBasedGradient
+      ? "Gradient Editor에서 확인한 Sample Point로 배경 Gradient를 계산합니다."
+      : "GraXpert가 배경 Gradient를 자동으로 분석합니다.";
     if (gradientSampleMethod) gradientSampleMethod.className = sampleBasedGradient
       ? "gradient-sample-method"
       : "gradient-sample-method hidden";
@@ -229,11 +301,15 @@
     var generateButton = document.getElementById("generateSamples");
     var openButton = document.getElementById("openSampleWindow");
     if (sampleCardTitle) sampleCardTitle.textContent = mode === "neutralize"
-      ? "Reference Point" : "배경 포인트";
+      ? "Reference Point" : "Sample Point";
     if (generateButton) generateButton.textContent = mode === "neutralize"
-      ? "배경 분석" : "포인트 자동 생성";
+      ? "배경 분석" : "자동 생성";
     if (openButton) openButton.textContent = mode === "neutralize"
-      ? "Neutralise Editor" : "Gradient Editor";
+      ? "Neutralise Editor" : "Gradient Editor 열기";
+    if (generateButton) generateButton.className = mode === "neutralize"
+      ? "editor-main-btn sample-window-btn" : "editor-main-btn";
+    if (openButton) openButton.className = mode === "neutralize"
+      ? "editor-main-btn" : "editor-main-btn sample-window-btn";
     updateSampleCount();
   }
 
@@ -293,15 +369,118 @@
     });
   }
 
+  function setProcessingContextBadge(element, text, state) {
+    if (!element) return;
+    var className = "processing-context-badge" + (state ? " " + state : "");
+    if (element.textContent !== text) element.textContent = text;
+    if (element.className !== className) element.className = className;
+  }
+
+  function setProcessingContextText(element, text) {
+    if (element && element.textContent !== text) element.textContent = text;
+  }
+
+  function refreshLayerScopeStatus(scopeMode, targetValue, targetBadge, targetHint,
+    maskValue, maskBadge, maskHint, operationLabel) {
+    if (mode !== scopeMode || settingsOpen || layerScopeRefreshPending[scopeMode]) return;
+    layerScopeRefreshPending[scopeMode] = true;
+    evalPS("GX_getActiveLayerInfo()", function(infoError, infoResult) {
+      if (infoError || !infoResult || infoResult.indexOf("OK|") !== 0) {
+        layerScopeRefreshPending[scopeMode] = false;
+        setProcessingContextText(targetValue, "처리할 레이어 없음");
+        setProcessingContextText(targetHint, infoError || infoResult || "Photoshop 문서를 열고 레이어를 선택하세요.");
+        setProcessingContextBadge(targetBadge, "사용 불가", "error");
+        setProcessingContextText(maskValue, "확인 불가");
+        setProcessingContextText(maskHint, "처리 대상을 먼저 선택하세요.");
+        setProcessingContextBadge(maskBadge, "자동", "checking");
+        return;
+      }
+      setProcessingContextText(targetValue, "현재 레이어");
+      setProcessingContextText(targetHint, "현재 선택한 레이어 전체를 " + operationLabel + "합니다.");
+      setProcessingContextBadge(targetBadge, "사용 가능", "");
+
+      evalPS("GX_getSkyMaskStatus()", function(maskError, maskResult) {
+        layerScopeRefreshPending[scopeMode] = false;
+        if (maskError || !maskResult || maskResult.indexOf("OK|") !== 0) {
+          setProcessingContextText(maskValue, "확인 실패");
+          setProcessingContextText(maskHint, maskError || maskResult || "선택 영역 또는 레이어 마스크 상태를 확인하지 못했습니다.");
+          setProcessingContextBadge(maskBadge, "확인 필요", "error");
+          return;
+        }
+        var maskSource = maskResult.substring(3);
+        var analysisOnly = scopeMode === "background";
+        if (maskSource === "selection") {
+          setProcessingContextText(maskValue, "선택 영역 사용");
+          setProcessingContextText(maskHint, analysisOnly
+            ? "Photoshop 선택 영역 안에서 Sample Point를 생성하며 결과는 현재 레이어 전체에 적용합니다."
+            : "Photoshop 선택 영역을 결과 레이어 마스크로 적용합니다.");
+          setProcessingContextBadge(maskBadge, analysisOnly ? "분석" : "자동", "");
+        } else if (maskSource === "layer-mask") {
+          setProcessingContextText(maskValue, "현재 레이어 마스크 복사");
+          if (analysisOnly) setProcessingContextText(maskValue, "현재 레이어 마스크 사용");
+          setProcessingContextText(maskHint, analysisOnly
+            ? "현재 레이어 마스크 영역 안에서 Sample Point를 생성하며 결과 마스크는 만들지 않습니다."
+            : "현재 레이어 마스크를 결과 레이어에 복사합니다.");
+          setProcessingContextBadge(maskBadge, analysisOnly ? "분석" : "자동", "");
+        } else {
+          setProcessingContextText(maskValue, analysisOnly ? "현재 레이어 전체" : "적용 안 함");
+          setProcessingContextText(maskHint, analysisOnly
+            ? "지정된 영역이 없어 현재 레이어 전체에서 Sample Point를 생성합니다."
+            : "선택 영역과 레이어 마스크가 없어 마스크 없이 생성합니다.");
+          setProcessingContextBadge(maskBadge, analysisOnly ? "분석" : "마스크 없음", "neutral");
+        }
+      });
+    });
+  }
+
+  function refreshBackgroundScopeStatus() {
+    refreshLayerScopeStatus(
+      "background",
+      backgroundTargetValue, backgroundTargetBadge, backgroundTargetHint,
+      backgroundMaskValue, backgroundMaskBadge, backgroundMaskHint,
+      "Background Extraction"
+    );
+  }
+
+  function refreshDenoiseScopeStatus() {
+    refreshLayerScopeStatus(
+      "denoise",
+      denoiseTargetValue, denoiseTargetBadge, denoiseTargetHint,
+      denoiseMaskValue, denoiseMaskBadge, denoiseMaskHint,
+      "Noise Reduction"
+    );
+  }
+
+  if (window.setInterval) {
+    window.setInterval(function() {
+      if (mode === "background" && !settingsOpen) {
+        refreshBackgroundScopeStatus();
+        refreshGradientResultContextStatus();
+      }
+      else if (mode === "denoise" && !settingsOpen) refreshDenoiseScopeStatus();
+    }, 2000);
+  }
+
   var methodInputs = document.querySelectorAll('input[name="gradientMethod"]');
   for (var mi=0; mi<methodInputs.length; mi++) {
-    methodInputs[mi].onchange = updateMethodUi;
+    methodInputs[mi].onchange = function() {
+      updateMethodUi();
+      dispatchSampleEditorState();
+    };
   }
 
   if (gradientInterpolation) gradientInterpolation.onchange = function() {
     updateMethodUi();
+    dispatchSampleEditorState();
     showOk("배경 포인트 보간 방식을 " + this.value + "로 변경했습니다.");
   };
+
+  var correctionInputs = document.querySelectorAll('input[name="correction"]');
+  for (var correctionIndex=0; correctionIndex<correctionInputs.length; correctionIndex++) {
+    correctionInputs[correctionIndex].onchange = dispatchSampleEditorState;
+  }
+  var addBackgroundLayerInput = document.getElementById("addBackgroundLayer");
+  if (addBackgroundLayerInput) addBackgroundLayerInput.onchange = dispatchSampleEditorState;
 
   function setAdvancedSection(toggle, body, open, bodyClass) {
     if (!toggle || !body) return;
@@ -374,13 +553,11 @@
         ? "감지한 입력 영역 내부"
         : (neutralSky ? "지정 영역 없음" : "현재 레이어 전체");
     } else {
-      var scope = selected("scope") || "layer";
-      resultScope = scope === "document" ? "보이는 레이어" :
-        scope === "sky" ? "지정 영역" : "현재 레이어 전체";
+      resultScope = "현재 레이어 전체 · 결과 마스크 없음";
       if (previewState) {
         pointScope = previewState.hasSelection && restrictPoints
-          ? (scope === "sky" ? "Photoshop 선택 영역/현재 레이어 마스크" : "Photoshop 선택 영역")
-          : (scope === "document" ? "보이는 레이어 Preview 전체" : "현재 레이어 전체");
+          ? "Photoshop 선택 영역/현재 레이어 마스크"
+          : "현재 레이어 전체";
       }
     }
     sampleScopeStatus.textContent = "Point 생성 영역: " + pointScope +
@@ -390,7 +567,28 @@
     }
   }
 
+  function previewRegionSource(state) {
+    var context = state && String(state.analysisContext || "");
+    if (context.indexOf("selection:") === 0) return "selection";
+    if (context.indexOf("layer-mask:") === 0) return "layer-mask";
+    return "none";
+  }
+
+  function previewRegionStatusText(state) {
+    var source = previewRegionSource(state);
+    if (source === "selection") return "지정 영역: Photoshop 선택 영역";
+    if (source === "layer-mask") return "지정 영역: 현재 레이어 마스크";
+    return "지정 영역: 없음 (현재 레이어 전체 사용)";
+  }
+
   function resetSamplePreview() {
+    if (!gradientResultBusy && gradientResultJob) cleanupGradientResultJob(gradientResultJob);
+    if (!gradientResultBusy) {
+      gradientResultJob = null;
+      gradientResultContextValid = true;
+      gradientResultMessage = "결과 미리보기 전";
+    }
+    if (previewState && previewState.gradientInputFile) safeDelete(previewState.gradientInputFile);
     safeDelete(previewFile);
     safeDelete(maskFile);
     previewFile = "";
@@ -403,9 +601,11 @@
     previewSelectionLuminanceStats = null;
     selectionMask = null;
     samplePoints = [];
+    sampleEditorNotice = "";
     neutralAutoReady = false;
     neutralEstimate = null;
     pendingGradientAutoSamples = false;
+    gradientGridDirty = false;
     pendingOpenSampleEditor = false;
     if (sampleEditor) sampleEditor.className = "sample-editor hidden";
     if (sampleCanvasEmpty) sampleCanvasEmpty.className = "sample-canvas-empty";
@@ -421,40 +621,6 @@
     sampleEditorRevision++;
     updateSampleCount();
     dispatchSampleEditorState();
-  }
-
-  var scopeInputs = document.querySelectorAll('input[name="scope"]');
-  var scopeHint = document.getElementById("scopeHint");
-  function selectedScopeDescription() {
-    for (var scopeIndex=0; scopeIndex<scopeInputs.length; scopeIndex++) {
-      if (scopeInputs[scopeIndex].checked) {
-        var selectedLabel = scopeInputs[scopeIndex].parentNode;
-        return selectedLabel ? selectedLabel.getAttribute("data-description") : "";
-      }
-    }
-    return "";
-  }
-  function restoreSelectedScopeDescription() {
-    if (scopeHint) scopeHint.textContent = selectedScopeDescription();
-  }
-  for (var si=0; si<scopeInputs.length; si++) {
-    (function(scopeInput) {
-      var scopeLabel = scopeInput.parentNode;
-      if (scopeLabel) {
-        scopeLabel.onmouseenter = function() {
-          if (scopeHint) scopeHint.textContent = scopeLabel.getAttribute("data-description") || "";
-        };
-        scopeLabel.onmouseleave = restoreSelectedScopeDescription;
-      }
-      scopeInput.onfocus = function() {
-        if (scopeHint && scopeLabel) scopeHint.textContent = scopeLabel.getAttribute("data-description") || "";
-      };
-      scopeInput.onblur = restoreSelectedScopeDescription;
-      scopeInput.onchange = function() {
-        resetSamplePreview();
-        restoreSelectedScopeDescription();
-      };
-    }(scopeInputs[si]));
   }
 
   function fileUrl(filePath) {
@@ -704,6 +870,9 @@
   }
 
   function getQualityConfig(name) {
+    if (name === "off") {
+      return { name:"off" };
+    }
     if (name === "relaxed") {
       return {
         name: "relaxed", meanAdjust: 20, warningAdjust: 10,
@@ -824,6 +993,13 @@
   function analyzeSamplePoint(point, radius, imageData, stats, imageState, config) {
     if (!imageData || !stats || !imageState) return { status: "good", reason: "", score: 100 };
     config = config || getQualityConfig("standard");
+    if (config.name === "off") {
+      return {
+        status:"good", reason:"추가 품질 검사 사용 안 함", score:100,
+        mean:0, deviation:0, starFraction:0, coreContrast:0,
+        smoothIllumination:false, qualityBypassed:true
+      };
+    }
     var maxOriginalX = Math.max(1, imageState.originalWidth - 1);
     var maxOriginalY = Math.max(1, imageState.originalHeight - 1);
     var centerX = Math.round(point.x / maxOriginalX * Math.max(1, imageData.width - 1));
@@ -887,6 +1063,9 @@
       if (normalizedRadii[ci] <= 0.25 && values[ci] >= coreThreshold) coreElevated++;
     }
     var coreElevatedFraction = innerCount ? coreElevated / innerCount : 0;
+    var coreLimit = Math.max(config.coreMin, robustSigma * config.coreSigma);
+    var smoothIllumination = starFraction < config.starWarning &&
+      coreContrast < coreLimit * 0.7 && deviation < config.deviationWarning;
 
     function quality(status, reason) {
       var score = 100 - Math.min(35, starFraction * 240) -
@@ -902,13 +1081,14 @@
         mean: mean,
         deviation: deviation,
         starFraction: starFraction,
-        coreContrast: coreContrast
+        coreContrast: coreContrast,
+        smoothIllumination: smoothIllumination
       };
     }
 
     var excludeMean = (stats.p85 > stats.p50 + 8 ? stats.p85 : stats.p85 + 12) + config.meanAdjust;
     var warningMean = (stats.p70 > stats.p50 + 5 ? stats.p70 : stats.p70 + 8) + config.warningAdjust;
-    if (coreContrast >= Math.max(config.coreMin, robustSigma * config.coreSigma) &&
+    if (coreContrast >= coreLimit &&
         coreElevatedFraction >= config.coreElevated) {
       return quality("exclude", "밝은 중심 구조");
     }
@@ -916,6 +1096,7 @@
       return quality("exclude", "별 밀집 영역");
     }
     if (mean >= excludeMean || brightFraction >= config.brightExclude) {
+      if (smoothIllumination) return quality("good", "부드러운 광해 배경");
       return quality("exclude", "밝은 영역");
     }
     if ((starFraction >= config.starWarning && deviation >= 7) ||
@@ -923,6 +1104,7 @@
       return quality("warning", starFraction >= config.starWarning ? "별 분포 주의" : "중심 구조 주의");
     }
     if (mean >= warningMean || brightFraction >= config.brightWarning || deviation >= config.deviationWarning) {
+      if (smoothIllumination) return quality("good", "부드러운 광해 배경");
       return quality("warning", "밝기 편차");
     }
     return quality("good", "배경 후보");
@@ -935,6 +1117,7 @@
     };
     if (!imageData || !stats || !imageState) return clean;
     config = config || getQualityConfig("standard");
+    if (config.name === "off") return clean;
 
     var centerX = Math.round(point.x / Math.max(1, imageState.originalWidth - 1) *
       Math.max(1, imageData.width - 1));
@@ -1060,6 +1243,12 @@
     point.quality.diffuseCurvature = diffuse.curvature;
     point.quality.diffuseTexture = diffuse.texture;
     point.quality.diffuseColorCurvature = diffuse.colorCurvature;
+    if (currentQualityConfig().name === "off" && point.withinGridTolerance === false) {
+      point.quality.status = "exclude";
+      point.quality.reason = "Grid Tolerance 제외";
+      point.quality.score = 0;
+      return point;
+    }
     if (point.quality.status !== "exclude" && diffuse.status === "exclude") {
       point.quality.status = "exclude";
       point.quality.reason = diffuse.reason;
@@ -1382,9 +1571,12 @@
     return true;
   }
 
-  function addSamplePointAt(targetCanvas, pos) {
-    if (!previewState || !previewImage) return false;
-    var point = canvasToOriginal(pos, targetCanvas);
+  function addSamplePointOriginal(point) {
+    if (!previewState || !previewImage || !point) return false;
+    point = {
+      x: Math.max(0, Math.min(previewState.originalWidth - 1, Math.round(Number(point.x) || 0))),
+      y: Math.max(0, Math.min(previewState.originalHeight - 1, Math.round(Number(point.y) || 0)))
+    };
     var radius = Math.max(2, Math.min(200,
       parseInt(document.getElementById("sampleSize").value, 10) || 25));
     if (point.x < radius || point.y < radius ||
@@ -1413,6 +1605,53 @@
     return true;
   }
 
+  function addSamplePointAt(targetCanvas, pos) {
+    if (!previewState || !previewImage) return false;
+    return addSamplePointOriginal(canvasToOriginal(pos, targetCanvas));
+  }
+
+  function moveSamplePointOriginal(index, point) {
+    index = parseInt(index, 10);
+    if (!previewState || !previewImage || index < 0 || index >= samplePoints.length) return false;
+    var radius = Math.max(2, Math.min(200,
+      parseInt(document.getElementById("sampleSize").value, 10) || 25));
+    var nextPoint = {
+      x:Math.max(0, Math.min(previewState.originalWidth - 1, Math.round(Number(point.x) || 0))),
+      y:Math.max(0, Math.min(previewState.originalHeight - 1, Math.round(Number(point.y) || 0)))
+    };
+    function reject(message) {
+      sampleEditorNotice = message;
+      showError(message);
+      sampleEditorRevision++;
+      dispatchSampleEditorState();
+      return false;
+    }
+    if (nextPoint.x < radius || nextPoint.y < radius ||
+        nextPoint.x >= previewState.originalWidth - radius ||
+        nextPoint.y >= previewState.originalHeight - radius) {
+      return reject("이동할 Sample Point 영역이 이미지 경계를 벗어납니다.");
+    }
+    if (document.getElementById("selectionOnly").checked &&
+        (!previewState.hasSelection || !selectionMask || !maskAllowsPoint(nextPoint, radius))) {
+      return reject("Sample Point 전체가 Photoshop 선택 영역 안에 있어야 합니다.");
+    }
+    for (var pi=0; pi<samplePoints.length; pi++) {
+      if (pi === index) continue;
+      var dx = samplePoints[pi].x - nextPoint.x;
+      var dy = samplePoints[pi].y - nextPoint.y;
+      if (Math.sqrt(dx * dx + dy * dy) < 3) {
+        return reject("다른 Sample Point와 너무 가까운 위치입니다.");
+      }
+    }
+    samplePoints[index] = applyPointQuality(nextPoint);
+    var quality = samplePoints[index].quality || { status:"good", reason:"배경 후보" };
+    sampleEditorNotice = "Point 이동 완료 · " +
+      (quality.status === "good" ? "적합" : quality.status === "warning" ? "주의" : "제외") +
+      " · " + quality.reason;
+    drawSampleEditor();
+    return true;
+  }
+
   function removeNearestSampleAt(targetCanvas, pos) {
     if (!previewState || !samplePoints.length) return false;
     var original = canvasToOriginal(pos, targetCanvas);
@@ -1431,6 +1670,7 @@
     }
     if (nearest < 0 || nearestDistance > sampleSize) return false;
     samplePoints.splice(nearest, 1);
+    if (mode === "background" && !samplePoints.length) gradientGridDirty = false;
     drawSampleEditor();
     return true;
   }
@@ -1538,11 +1778,13 @@
 
   document.getElementById("undoSample").onclick = function(){
     if (samplePoints.length) samplePoints.pop();
+    if (mode === "background" && !samplePoints.length) gradientGridDirty = false;
     drawSampleEditor();
   };
 
   document.getElementById("clearSamples").onclick = function(){
     samplePoints = [];
+    if (mode === "background") gradientGridDirty = false;
     neutralAutoReady = false;
     drawSampleEditor();
   };
@@ -1554,12 +1796,14 @@
 
   document.getElementById("pointsPerRow").onchange = function(){
     this.value = normalizePointsPerRow(this.value);
+    if (mode === "background") gradientGridDirty = samplePoints.length > 0;
     sampleEditorRevision++;
     dispatchSampleEditorState();
   };
 
   document.getElementById("gridTolerance").onchange = function(){
     this.value = normalizeGridTolerance(this.value).toFixed(1);
+    if (mode === "background") gradientGridDirty = samplePoints.length > 0;
     sampleEditorRevision++;
     dispatchSampleEditorState();
   };
@@ -1572,12 +1816,14 @@
   };
 
   var qualityPresetInputs = document.querySelectorAll('input[name="qualityPreset"]');
-  for (var qpi=0; qpi<qualityPresetInputs.length; qpi++) {
+    for (var qpi=0; qpi<qualityPresetInputs.length; qpi++) {
     qualityPresetInputs[qpi].onchange = function() {
       if (!previewState) return;
       refreshPointQualities();
       drawSampleEditor();
-      showOk("품질 분석 강도를 변경하고 기존 Point를 다시 분석했습니다.");
+      showOk(selected("qualityPreset") === "off"
+        ? "추가 품질 검사를 사용하지 않습니다. GraXpert Grid Tolerance만 적용합니다."
+        : "품질 분석 강도를 변경하고 기존 Point를 다시 분석했습니다.");
     };
   }
 
@@ -1843,6 +2089,7 @@
     var unavailableCells = 0;
     var relocatedCells = 0;
     var gridRejectedCells = 0;
+    var smoothLightPollutionAccepted = 0;
     var columns = normalizePointsPerRow(document.getElementById("pointsPerRow").value);
     var gridSpacing = previewState.originalWidth / columns;
     var tolerance = normalizeGridTolerance(document.getElementById("gridTolerance").value);
@@ -1895,8 +2142,16 @@
           var withinTolerance = toleranceStats.mad === 0
             ? toleranceCandidate.localMedian <= toleranceStats.limit
             : toleranceCandidate.localMedian < toleranceStats.limit;
-          if (!withinTolerance) continue;
+          toleranceCandidate.withinGridTolerance = withinTolerance;
           applyPointQuality(toleranceCandidate);
+          if (!withinTolerance) {
+            var smoothBackground = !options.neutral && toleranceCandidate.quality &&
+              toleranceCandidate.quality.status === "good" &&
+              toleranceCandidate.quality.smoothIllumination;
+            if (!smoothBackground) continue;
+            toleranceCandidate.quality.reason = "부드러운 광해 배경";
+            toleranceCandidate.quality.gridToleranceOverride = true;
+          }
           toleranceCandidates.push(toleranceCandidate);
         }
         if (!toleranceCandidates.length) {
@@ -1933,6 +2188,9 @@
           continue;
         }
         if (bestCandidate.adaptiveOffset !== 0) relocatedCells++;
+        if (bestCandidate.quality && bestCandidate.quality.gridToleranceOverride) {
+          smoothLightPollutionAccepted++;
+        }
         generated.push(bestCandidate);
     }
     if (options.neutral) {
@@ -1940,6 +2198,7 @@
         generated, 20, previewState.originalWidth, previewState.originalHeight
       );
     }
+    if (!options.neutral) gradientGridDirty = false;
     samplePoints = generated;
     var minimumPoints = options.neutral ? 5 : 1;
     var readyCount = options.neutral ? usableSamplePoints(false).length : usableSamplePoints(true).length;
@@ -1949,6 +2208,7 @@
       (options.neutral ? "Background 자동 분석: " : "자동 Grid Sample ") + samplePoints.length + "개" +
       "\n행당 포인트 " + columns + " · Grid Tolerance " + tolerance.toFixed(1) +
       (relocatedCells ? "\n안전한 위치로 재배치: " + relocatedCells + "개" : "") +
+      (smoothLightPollutionAccepted ? "\n부드러운 광해 배경 허용: " + smoothLightPollutionAccepted + "개" : "") +
       (gridRejectedCells ? "\nGrid Tolerance 제외: " + gridRejectedCells + "개" : "") +
       (unavailableCells ? "\n제외된 Grid 셀: " + unavailableCells + "개" : "");
     if (options.neutral) {
@@ -1974,6 +2234,7 @@
       relocatedCells: relocatedCells,
       unavailableCells: unavailableCells,
       gridRejectedCells: gridRejectedCells,
+      smoothLightPollutionAccepted: smoothLightPollutionAccepted,
       gridToleranceLimit: toleranceStats.limit
     };
   }
@@ -1995,8 +2256,7 @@
       document.getElementById("neutralAnalyze").onclick();
       return;
     }
-    var restrictToSky = (selected("scope") || "layer") === "sky";
-    document.getElementById("selectionOnly").checked = restrictToSky;
+    document.getElementById("selectionOnly").checked = false;
     pendingGradientAutoSamples = true;
     document.getElementById("preparePreview").onclick();
   };
@@ -2010,6 +2270,9 @@
       return addSamplePointAt(targetCanvas, {
         x: x, y: y, scaleX: scaleX || 1, scaleY: scaleY || 1
       });
+    },
+    move: function(index, x, y) {
+      return moveSamplePointOriginal(index, { x:x, y:y });
     },
     remove: function(targetCanvas, x, y, scaleX, scaleY) {
       return removeNearestSampleAt(targetCanvas, {
@@ -2049,11 +2312,13 @@
     },
     setPointsPerRow: function(value) {
       document.getElementById("pointsPerRow").value = normalizePointsPerRow(value);
+      if (mode === "background") gradientGridDirty = samplePoints.length > 0;
       sampleEditorRevision++;
       dispatchSampleEditorState();
     },
     setGridTolerance: function(value) {
       document.getElementById("gridTolerance").value = normalizeGridTolerance(value).toFixed(1);
+      if (mode === "background") gradientGridDirty = samplePoints.length > 0;
       sampleEditorRevision++;
       dispatchSampleEditorState();
     },
@@ -2062,16 +2327,51 @@
       if (previewState) {
         refreshPointQualities();
         drawSampleEditor();
+        showOk(value === "off"
+          ? "추가 품질 검사를 사용하지 않습니다. GraXpert Grid Tolerance만 적용합니다."
+          : "품질 분석 강도를 변경하고 기존 Point를 다시 분석했습니다.");
       } else {
         sampleEditorRevision++;
         dispatchSampleEditorState();
       }
-    }
+    },
+    previewGradient: function() { createGradientResultPreview(); },
+    applyGradient: function() { applyGradientResultPreview(); },
+    cancelGradientPreview: function() { cancelGradientResultPreview(); },
+    releaseGradientResult: function() { releaseGradientResultPreview(); }
   };
+
+  function gradientResultSignature() {
+    if (!previewState || previewState.mode !== "background") return "";
+    var points = usableSamplePoints(true);
+    var pointData = [];
+    for (var i=0; i<points.length; i++) pointData.push([points[i].x, points[i].y]);
+    return JSON.stringify({
+      docId:previewState.docId,
+      layerId:previewState.sourceLayerId,
+      width:previewState.originalWidth,
+      height:previewState.originalHeight,
+      context:previewState.analysisContext,
+      method:currentGradientMethod(),
+      smoothing:Number(smoothing.value),
+      correction:selected("correction") || "Subtraction",
+      sampleSize:parseInt(document.getElementById("sampleSize").value, 10) || 25,
+      pointsPerRow:normalizePointsPerRow(document.getElementById("pointsPerRow").value),
+      gridTolerance:normalizeGridTolerance(document.getElementById("gridTolerance").value),
+      addBackgroundLayer:!!document.getElementById("addBackgroundLayer").checked,
+      points:pointData
+    });
+  }
 
   function sampleEditorStateSnapshot(editorMode) {
     var requestedMode = editorMode === "neutralize" ? "neutralize" : "background";
     var matchingPreview = !!(previewState && previewImage && previewState.mode === requestedMode);
+    var resultSignature = requestedMode === "background" ? gradientResultSignature() : "";
+    var resultSettingsOutdated = !!(gradientResultJob && gradientResultJob.signature !== resultSignature);
+    var resultContextInvalid = !!(gradientResultJob && !gradientResultContextValid);
+    var resultOutdated = resultSettingsOutdated || resultContextInvalid;
+    var resultReady = !!(gradientResultJob && !gradientResultBusy && !resultOutdated &&
+      gradientResultJob.previewFile && gradientResultJob.importFile);
     var editorCount = requestedMode === "neutralize"
       ? document.getElementById("neutralSampleCount") : sampleCount;
     return {
@@ -2083,12 +2383,28 @@
       selection: matchingPreview && selectionStatus
         ? selectionStatus.textContent : "메인 패널에서 해당 Preview를 준비하세요.",
       quality: matchingPreview && qualityReport ? qualityReport.textContent : "분석 전",
+      pointEditMessage: sampleEditorNotice,
       stretch: document.getElementById("stretchPreset").value,
       saturation: normalizeSaturation(document.getElementById("previewSaturation").value),
       sampleSize: parseInt(document.getElementById("sampleSize").value, 10) || 25,
       pointsPerRow: normalizePointsPerRow(document.getElementById("pointsPerRow").value),
       gridTolerance: normalizeGridTolerance(document.getElementById("gridTolerance").value),
       qualityPreset: selected("qualityPreset") || "standard",
+      regionSource: matchingPreview ? previewRegionSource(previewState) : "none",
+      gridDirty: requestedMode === "background" && matchingPreview && gradientGridDirty,
+      resultBusy: requestedMode === "background" && gradientResultBusy,
+      resultCancelable: requestedMode === "background" && gradientResultBusy && !!activeGraXpertController,
+      resultReady: requestedMode === "background" && resultReady,
+      resultOutdated: requestedMode === "background" && resultOutdated,
+      resultMessage: requestedMode === "background"
+        ? (resultContextInvalid
+          ? "결과를 생성한 문서, 현재 레이어 또는 이미지 크기가 변경되었습니다."
+          : resultSettingsOutdated
+            ? "포인트 또는 설정이 변경되었습니다. 결과를 다시 계산하세요."
+            : gradientResultMessage)
+        : "",
+      resultPreviewFile: requestedMode === "background" && resultReady ? gradientResultJob.previewFile : "",
+      resultAppliedRevision: requestedMode === "background" ? gradientResultAppliedRevision : 0,
       selectionOnly: requestedMode === "neutralize"
         ? !!(matchingPreview && previewState.hasSelection)
         : document.getElementById("selectionOnly").checked,
@@ -2115,23 +2431,31 @@
       dispatchSampleEditorState();
       return;
     }
+    if (requestedMode === "background" && command.action === "releaseGradientResult") {
+      releaseGradientResultPreview();
+      return;
+    }
+    if (requestedMode === "background" && command.action === "cancelGradientPreview") {
+      cancelGradientResultPreview();
+      return;
+    }
     if (mode !== requestedMode || !previewState || !previewImage || previewState.mode !== requestedMode) return;
+    if (requestedMode === "background" && gradientResultBusy &&
+        /^(add|move|remove|undo|clear|auto|setSampleSize|setPointsPerRow|setGridTolerance|setQualityPreset|setSelectionOnly)$/.test(command.action)) {
+      return;
+    }
     if (command.action === "add") {
       var point = {
         x: Math.max(0, Math.min(previewState.originalWidth - 1, Math.round(Number(command.x) || 0))),
         y: Math.max(0, Math.min(previewState.originalHeight - 1, Math.round(Number(command.y) || 0)))
       };
-      var duplicate = false;
-      for (var pi=0; pi<samplePoints.length; pi++) {
-        var dx = samplePoints[pi].x - point.x;
-        var dy = samplePoints[pi].y - point.y;
-        if (Math.sqrt(dx * dx + dy * dy) < 3) { duplicate = true; break; }
-      }
-      if (!duplicate) samplePoints.push(applyPointQuality(point));
-      drawSampleEditor();
+      addSamplePointOriginal(point);
+    } else if (command.action === "move") {
+      moveSamplePointOriginal(command.index, { x:command.x, y:command.y });
     } else if (command.action === "remove") {
       var removeIndex = parseInt(command.index, 10);
       if (removeIndex >= 0 && removeIndex < samplePoints.length) samplePoints.splice(removeIndex, 1);
+      if (mode === "background" && !samplePoints.length) gradientGridDirty = false;
       drawSampleEditor();
     } else if (command.action === "undo") {
       document.getElementById("undoSample").onclick();
@@ -2154,6 +2478,10 @@
     } else if (command.action === "setSelectionOnly") {
       window.GX_SAMPLE_EDITOR_BRIDGE.setSelectionOnly(command.value);
       dispatchSampleEditorState();
+    } else if (command.action === "previewGradient") {
+      createGradientResultPreview();
+    } else if (command.action === "applyGradient") {
+      applyGradientResultPreview();
     }
   }
 
@@ -2174,16 +2502,30 @@
         var commandFile = sampleEditorExchangeFile(config.commandFile);
         if (!commandFile || !fs.existsSync(commandFile)) continue;
         try {
+          var commandFileState = fs.statSync(commandFile);
+          var commandModifiedAt = isFinite(Number(commandFileState.mtimeMs))
+            ? Number(commandFileState.mtimeMs) : commandFileState.mtime.getTime();
+          var commandFileStamp = commandModifiedAt + "|" + commandFileState.size;
+          if (commandFileStamp === lastSampleCommandFileStamp[config.mode]) continue;
+          var commandText = fs.readFileSync(commandFile, "utf8");
+          JSON.parse(commandText);
           handleSampleEditorCommand(
-            { data:fs.readFileSync(commandFile, "utf8") }, config.mode
+            { data:commandText }, config.mode
           );
+          lastSampleCommandFileStamp[config.mode] = commandFileStamp;
         } catch (_) {}
       }
-    }, 200);
+    }, 350);
   }
 
   document.getElementById("preparePreview").onclick = function(){
     clearMsg();
+    if (!gradientResultBusy && gradientResultJob) {
+      cleanupGradientResultJob(gradientResultJob);
+      gradientResultJob = null;
+      gradientResultContextValid = true;
+      gradientResultMessage = "결과 미리보기 전";
+    }
     if (!fs || !os || !path) {
       showError("Node.js 모듈을 사용할 수 없습니다. CEP 설정을 확인하세요.");
       return;
@@ -2196,25 +2538,30 @@
       return;
     }
 
+    if (previewState && previewState.gradientInputFile) safeDelete(previewState.gradientInputFile);
     safeDelete(previewFile);
     safeDelete(maskFile);
     var stamp = Date.now();
     previewFile = path.join(workdir, "preview_" + stamp + ".png");
     maskFile = path.join(workdir, "mask_" + stamp + ".png");
+    var gradientInputFile = mode === "background"
+      ? path.join(workdir, "preview_input_" + stamp + ".tif") : "";
     var scope = mode === "neutralize"
       ? (document.getElementById("neutralSkyOnly").checked ? "layer-sky" : "layer-auto")
-      : (selected("scope") || "document");
+      : "layer-auto";
 
     setBusy(true, "Sample Preview 준비 중…");
     setProgress(15, "Photoshop Preview와 Selection mask 생성 중…");
     evalPS(
-      'GX_exportSamplePreview("' + escJs(previewFile) + '","' + escJs(maskFile) + '",1400,900,"' + scope + '")',
+      'GX_exportSamplePreview("' + escJs(previewFile) + '","' + escJs(maskFile) + '",1400,900,"' +
+        scope + '","' + escJs(gradientInputFile) + '")',
       function(err, result) {
         if (err || !result || result.indexOf("OK|") !== 0) {
           pendingNeutralAutoAnalysis = false;
           pendingGradientAutoSamples = false;
           pendingOpenSampleEditor = false;
           setBusy(false);
+          safeDelete(gradientInputFile);
           showError("Sample Preview 생성 실패:\n" + (err || result || "알 수 없는 오류"));
           return;
         }
@@ -2230,8 +2577,11 @@
             ? parseInt(parts[7].substring(2), 10) : -1,
           analysisContext: parts[8] && parts[8].indexOf("C:") === 0
             ? decodeURIComponent(parts[8].substring(2)) : "",
+          docName: parts[9] && parts[9].indexOf("N:") === 0
+            ? decodeURIComponent(parts[9].substring(2)) : "",
           mode: mode,
-          scope: scope
+          scope: scope,
+          gradientInputFile: gradientInputFile
         };
         samplePoints = [];
 
@@ -2271,9 +2621,7 @@
               ? calculateLuminanceStats(previewPixels, selectionMask) : null;
             sampleEditor.className = "sample-editor hidden";
             sampleCanvasEmpty.className = "sample-canvas-empty hidden";
-            selectionStatus.textContent = previewState.hasSelection
-              ? "Photoshop 선택 영역: 감지됨"
-              : "Photoshop 선택 영역: 없음 (전체 Preview 사용)";
+            selectionStatus.textContent = previewRegionStatusText(previewState);
             if (mode === "neutralize") {
               document.getElementById("selectionOnly").checked = previewState.hasSelection;
             } else if (pendingGradientAutoSamples) {
@@ -2313,14 +2661,36 @@
 
   updateMethodUi();
 
+  function defaultGraXpertExecutable() {
+    var localAppData = "";
+    try {
+      if (typeof process !== "undefined" && process.env) {
+        localAppData = process.env.LOCALAPPDATA || "";
+      }
+    } catch (_) {}
+    if (!localAppData && os && os.homedir) {
+      localAppData = path.join(os.homedir(), "AppData", "Local");
+    }
+    if (localAppData && path && fs) {
+      var installedExe = path.join(localAppData, "Programs", "GraXpert", "GraXpert.exe");
+      if (fs.existsSync(installedExe)) return installedExe;
+    }
+    return "GraXpert.exe";
+  }
+
   try {
     var saved = localStorage.getItem("graxpertExe");
-    if (saved) exePath.value = saved;
+    if (saved) {
+      var migratedExe = saved.replace(/GraXpert-win64\.exe$/i, "GraXpert.exe");
+      if (/^GraXpert\.exe$/i.test(migratedExe)) migratedExe = defaultGraXpertExecutable();
+      exePath.value = migratedExe;
+      if (migratedExe !== saved) localStorage.setItem("graxpertExe", migratedExe);
+    } else exePath.value = defaultGraXpertExecutable();
   } catch (_) {}
 
   document.getElementById("savePath").onclick = function(){
     try {
-      localStorage.setItem("graxpertExe", exePath.value.trim() || "GraXpert-win64.exe");
+      localStorage.setItem("graxpertExe", exePath.value.trim() || defaultGraXpertExecutable());
       showOk("GraXpert 실행 경로를 저장했습니다.");
     } catch (_) {}
   };
@@ -2404,6 +2774,13 @@
     }
   }
 
+  function setGradientEditorBusy(busy) {
+    var controls = [runBtn, tabBg, tabDn, tabNeutral, settingsBtn];
+    for (var i=0; i<controls.length; i++) {
+      if (controls[i]) controls[i].disabled = !!busy;
+    }
+  }
+
   function setCancelAvailable(available) {
     if (!cancelRunBtn) return;
     cancelRunBtn.className = available ? "cancel-run" : "cancel-run hidden";
@@ -2470,27 +2847,51 @@
     return null;
   }
 
-  function safeFileStem(name) {
-    var stem = String(name || "Photoshop_Image");
-    var dot = stem.lastIndexOf(".");
-    if (dot > 0) stem = stem.substring(0, dot);
-    stem = stem.replace(/[\\\/:*?"<>|]/g, "_").replace(/[ .]+$/g, "");
-    return stem || "Photoshop_Image";
+  function prepareBackgroundModelImport(sourcePath, workdir, stamp) {
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+      throw new Error("Background Model 결과 파일을 찾지 못했습니다.");
+    }
+    if (/\.(fits|fit|fts)$/i.test(sourcePath)) {
+      var convertedPath = path.join(workdir, "photoshop_background_" + stamp + ".tif");
+      convertFitsToTiff(sourcePath, convertedPath);
+      return convertedPath;
+    }
+    return sourcePath;
   }
 
-  function saveBackgroundOutput(sourcePath, docName, stamp) {
-    var saveDir = path.join(os.homedir(), "Documents", "GraXpert Background Models");
-    if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive:true });
-
-    var ext = path.extname(sourcePath) || ".fits";
-    var dest = path.join(
-      saveDir,
-      safeFileStem(docName) + "_GraXpert_background_" + stamp + ext
-    );
-
-    fs.copyFileSync(sourcePath, dest);
+  function cleanupBackgroundModelFiles(sourcePath, importPath) {
+    if (importPath && importPath !== sourcePath) safeDelete(importPath);
     safeDelete(sourcePath);
-    return dest;
+  }
+
+  function importBackgroundModelLayer(sourcePath, workdir, stamp, docId, docName, sourceLayerId, callback) {
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+      callback("Background Model 결과 파일을 찾지 못했습니다.", false);
+      return;
+    }
+
+    var importPath = "";
+    try {
+      importPath = prepareBackgroundModelImport(sourcePath, workdir, stamp);
+    } catch (prepareError) {
+      callback("Background Model 변환 실패: " + prepareError.message, false);
+      return;
+    }
+
+    evalPS(
+      'GX_importResultById("' + escJs(importPath) + '",' + docId +
+        ',"' + escJs(docName) + '","GraXpert - Background Model","",' +
+        sourceLayerId + ',true)',
+      function(importError, importResult) {
+        if (importPath !== sourcePath) safeDelete(importPath);
+        if (importError || importResult !== "OK") {
+          callback("Background Model 레이어 추가 실패: " +
+            (importError || importResult || "알 수 없는 오류"), false);
+          return;
+        }
+        callback("", true);
+      }
+    );
   }
 
   function parseFitsCardValue(card) {
@@ -3117,6 +3518,74 @@
     return info.stripOffsets[stripIndex] + rowInStrip * rowBytes;
   }
 
+  function createTiffPreviewBmp(tiffPath, bmpPath, maxWidth, maxHeight) {
+    var inputFd = null;
+    try {
+      inputFd = fs.openSync(tiffPath, "r");
+      var info = readRgbTiffInfo(inputFd);
+      var widthLimit = Math.max(1, Math.floor(Number(maxWidth) || 1400));
+      var heightLimit = Math.max(1, Math.floor(Number(maxHeight) || 900));
+      var scale = Math.min(1, widthLimit / info.width, heightLimit / info.height);
+      var previewWidth = Math.max(1, Math.round(info.width * scale));
+      var previewHeight = Math.max(1, Math.round(info.height * scale));
+      var bmpRowBytes = Math.ceil(previewWidth * 3 / 4) * 4;
+      var pixelBytes = checkedProduct([bmpRowBytes, previewHeight], "Preview BMP 픽셀 데이터");
+      var output = Buffer.alloc(54 + pixelBytes);
+      output.write("BM", 0, 2, "ascii");
+      output.writeUInt32LE(output.length, 2);
+      output.writeUInt32LE(54, 10);
+      output.writeUInt32LE(40, 14);
+      output.writeInt32LE(previewWidth, 18);
+      output.writeInt32LE(previewHeight, 22);
+      output.writeUInt16LE(1, 26);
+      output.writeUInt16LE(24, 28);
+      output.writeUInt32LE(pixelBytes, 34);
+      output.writeInt32LE(2835, 38);
+      output.writeInt32LE(2835, 42);
+
+      var sourceRow = Buffer.alloc(info.rowBytes);
+      function sample8(offset) {
+        if (info.bits === 16) return Math.round(sourceRow.readUInt16LE(offset) / 257);
+        var value = sourceRow.readFloatLE(offset);
+        if (!isFinite(value)) value = 0;
+        return Math.round(Math.max(0, Math.min(1, value)) * 255);
+      }
+      for (var bmpY=0; bmpY<previewHeight; bmpY++) {
+        var displayY = previewHeight - 1 - bmpY;
+        var sourceY = previewHeight === 1 ? 0
+          : Math.round(displayY * (info.height - 1) / (previewHeight - 1));
+        readExact(inputFd, sourceRow, rgbTiffRowPosition(info, sourceY));
+        var outputAt = 54 + bmpY * bmpRowBytes;
+        for (var x=0; x<previewWidth; x++) {
+          var sourceX = previewWidth === 1 ? 0
+            : Math.round(x * (info.width - 1) / (previewWidth - 1));
+          var sourceAt = sourceX * 3 * info.bytesPerSample;
+          output[outputAt++] = sample8(sourceAt + 2 * info.bytesPerSample);
+          output[outputAt++] = sample8(sourceAt + info.bytesPerSample);
+          output[outputAt++] = sample8(sourceAt);
+        }
+      }
+      fs.writeFileSync(bmpPath, output);
+      fs.closeSync(inputFd);
+      inputFd = null;
+      return { path:bmpPath, width:previewWidth, height:previewHeight };
+    } catch (error) {
+      try { if (inputFd !== null) fs.closeSync(inputFd); } catch (_) {}
+      safeDelete(bmpPath);
+      throw error;
+    }
+  }
+
+  function createGradientPreviewFile(importFile, workdir, stamp) {
+    if (/\.tiff?$/i.test(importFile)) {
+      var bmpPath = path.join(workdir, "editor_result_preview_" + stamp + ".bmp");
+      createTiffPreviewBmp(importFile, bmpPath, 1400, 900);
+      return bmpPath;
+    }
+    if (/\.(png|jpe?g|bmp)$/i.test(importFile)) return importFile;
+    throw new Error("Editor Preview에서 지원하지 않는 결과 형식입니다: " + path.extname(importFile));
+  }
+
   function normalizeNeutralStrength(value) {
     var strengthValue = Number(value);
     if (!isFinite(strengthValue)) strengthValue = 100;
@@ -3529,8 +3998,9 @@
     };
   }
 
-  function runGraXpert(input, outputBase, preferencesFile, callback) {
-    var exe = exePath.value.trim() || "GraXpert-win64.exe";
+  function runGraXpert(input, outputBase, preferencesFile, callback, options) {
+    options = options || {};
+    var exe = exePath.value.trim() || defaultGraXpertExecutable();
     var args = buildGraXpertArgs(input, outputBase, preferencesFile);
     var lastOutputUpdateAt = 0;
     var controller = null;
@@ -3546,17 +4016,19 @@
         for (var i=lines.length - 1; i>=0; i--) {
           if (lines[i].trim()) { latest = lines[i].trim(); break; }
         }
-        if (latest) setProgress(55, "GraXpert 처리 중…\n" + latest.substring(0, 180));
+        if (latest && !options.editorOnly) {
+          setProgress(55, "GraXpert 처리 중…\n" + latest.substring(0, 180));
+        }
       }
     }, function(error, stdout, stderr) {
       completedBeforeAssignment = true;
       if (activeGraXpertController === controller) activeGraXpertController = null;
-      setCancelAvailable(false);
+      if (!options.editorOnly) setCancelAvailable(false);
       callback(error, stdout || "", stderr || "");
     });
     if (!completedBeforeAssignment) {
       activeGraXpertController = controller;
-      setCancelAvailable(true);
+      if (!options.editorOnly) setCancelAvailable(true);
     }
     return controller;
   }
@@ -3576,7 +4048,7 @@
         "-output", outputBase
       ];
 
-      if (document.getElementById("saveBackground").checked) {
+      if (document.getElementById("addBackgroundLayer").checked) {
         args.push("-bg");
       }
       if (preferencesFile) {
@@ -3675,6 +4147,7 @@
     safeDelete(importFile);
     safeDelete(conversionFile);
     safeDelete(preferencesFile);
+    if (previewState && previewState.gradientInputFile) safeDelete(previewState.gradientInputFile);
     safeDelete(previewFile);
     safeDelete(maskFile);
     previewFile = "";
@@ -3698,8 +4171,363 @@
     } catch (_) {}
   }
 
+  function cleanupGradientResultJob(job) {
+    if (!job) return;
+    safeDelete(job.input);
+    if (job.output && job.output !== job.importFile) safeDelete(job.output);
+    safeDelete(job.importFile);
+    safeDelete(job.previewFile);
+    safeDelete(job.conversionFile);
+    safeDelete(job.preferencesFile);
+    safeDelete(job.backgroundOutput);
+  }
+
+  function refreshGradientResultContextStatus() {
+    if (!gradientResultJob || gradientResultBusy || mode !== "background") return;
+    var checkedJob = gradientResultJob;
+    evalPS("GX_getActiveContextIdentity()", function(error, result) {
+      if (gradientResultJob !== checkedJob) return;
+      var valid = false;
+      if (!error && result && result.indexOf("OK|") === 0) {
+        var parts = result.split("|");
+        valid = Number(parts[1]) === Number(checkedJob.docId) &&
+          Number(parts[2]) === Number(checkedJob.sourceLayerId) &&
+          Number(parts[3]) === Number(checkedJob.width) &&
+          Number(parts[4]) === Number(checkedJob.height);
+      }
+      if (gradientResultContextValid !== valid) {
+        gradientResultContextValid = valid;
+        if (valid) gradientResultMessage = "전체 해상도 결과가 준비되었습니다. 확인 후 Photoshop에 적용하세요.";
+        dispatchSampleEditorState();
+      }
+    });
+  }
+
+  function releaseGradientResultPreview() {
+    if (gradientResultBusy) {
+      cancelGradientResultPreview();
+      return;
+    }
+    cleanupGradientResultJob(gradientResultJob);
+    gradientResultJob = null;
+    gradientResultContextValid = true;
+    gradientResultMessage = "결과 미리보기 전";
+    dispatchSampleEditorState();
+  }
+
+  function cancelGradientResultPreview() {
+    if (!gradientResultBusy || !activeGraXpertController) return;
+    gradientResultMessage = "GraXpert 처리를 취소하는 중…";
+    dispatchSampleEditorState();
+    activeGraXpertController.cancel();
+  }
+
+  function validateGradientResultRequest() {
+    if (mode !== "background") return "Background Extraction 탭에서 실행하세요.";
+    if (!previewState || !previewImage || previewState.mode !== "background") {
+      return "먼저 포인트 자동 생성으로 Preview를 준비하세요.";
+    }
+    var method = currentGradientMethod();
+    if (method === "AI") return "Gradient Editor 결과 확인은 배경 포인트 방식에서 사용할 수 있습니다.";
+    var minimumPoints = method === "Splines" ? 16 : 3;
+    var usableCount = usableSamplePoints(true).length;
+    if (usableCount < minimumPoints) {
+      return method + " 실행에는 초록색 적합 Point가 최소 " + minimumPoints +
+        "개 필요합니다. 현재 " + usableCount + "개입니다.";
+    }
+    return "";
+  }
+
+  function prepareGradientResultInput(inputPath, callback) {
+    var cachedInput = previewState && previewState.gradientInputFile;
+    if (!cachedInput || !fs.existsSync(cachedInput)) {
+      evalPS('GX_exportInput("' + escJs(inputPath) + '","layer","layer-auto")', function(error, result) {
+        if (error || !result || result.indexOf("OK|") !== 0) {
+          callback(new Error(error || result || "Photoshop 입력 준비 실패"));
+          return;
+        }
+        try { callback(null, parsePhotoshopExport(result)); }
+        catch (parseError) { callback(parseError); }
+      });
+      return;
+    }
+    evalPS(
+      'GX_validateProcessingContext(' + previewState.docId + ',' + previewState.sourceLayerId + ',' +
+        previewState.originalWidth + ',' + previewState.originalHeight + ',"' +
+        escJs(previewState.analysisContext) + '","layer-auto")',
+      function(error, result) {
+        if (error || result !== "OK") {
+          callback(new Error(error || result || "Sample Preview 작업 문맥 확인 실패"));
+          return;
+        }
+        try {
+          fs.copyFileSync(cachedInput, inputPath);
+          callback(null, {
+            docId:previewState.docId,
+            width:previewState.originalWidth,
+            height:previewState.originalHeight,
+            maskToken:"",
+            sourceLayerId:previewState.sourceLayerId,
+            analysisContext:previewState.analysisContext,
+            docName:previewState.docName || ""
+          });
+        } catch (copyError) { callback(copyError); }
+      }
+    );
+  }
+
+  function createGradientResultPreview() {
+    clearMsg();
+    var requestError = validateGradientResultRequest();
+    if (requestError) {
+      gradientResultMessage = requestError;
+      showError(requestError);
+      dispatchSampleEditorState();
+      return;
+    }
+    if (gradientResultBusy) return;
+    if (activeGraXpertController) {
+      gradientResultMessage = "다른 GraXpert 처리가 진행 중입니다.";
+      dispatchSampleEditorState();
+      return;
+    }
+    if (!fs || !os || !path || !cp) {
+      gradientResultMessage = "Node.js 모듈을 사용할 수 없습니다.";
+      dispatchSampleEditorState();
+      return;
+    }
+
+    cleanupGradientResultJob(gradientResultJob);
+    gradientResultJob = null;
+    gradientResultContextValid = true;
+    gradientResultBusy = true;
+    gradientResultMessage = "전체 해상도 입력을 준비하고 있습니다…";
+    dispatchSampleEditorState();
+
+    var stamp = Date.now();
+    var workdir = path.join(os.tmpdir(), "GraXpert_Photoshop");
+    try {
+      if (!fs.existsSync(workdir)) fs.mkdirSync(workdir, { recursive:true });
+    } catch (folderError) {
+      gradientResultBusy = false;
+      gradientResultMessage = "임시 폴더 생성 실패: " + folderError.message;
+      dispatchSampleEditorState();
+      return;
+    }
+    var input = path.join(workdir, "editor_input_" + stamp + ".tif");
+    var outputBase = path.join(workdir, "editor_output_" + stamp);
+    var preferencesFile = path.join(workdir, "editor_preferences_" + stamp + ".json");
+    var conversionFile = path.join(workdir, "editor_conversion_" + stamp + ".txt");
+    var signature = gradientResultSignature();
+
+    setGradientEditorBusy(true);
+    prepareGradientResultInput(
+      input,
+      function(exportError, exportInfo) {
+        if (exportError) {
+          gradientResultBusy = false;
+          setGradientEditorBusy(false);
+          safeDelete(input);
+          gradientResultMessage = "Photoshop 입력 준비 실패: " + exportError.message;
+          showError(gradientResultMessage);
+          dispatchSampleEditorState();
+          return;
+        }
+        try {
+          var contextError = previewContextError(previewState, exportInfo, "background", "layer-auto");
+          if (contextError) throw new Error(contextError);
+          createGradientPreferences(
+            preferencesFile, currentGradientMethod(), exportInfo.width, exportInfo.height
+          );
+        } catch (prepareError) {
+          gradientResultBusy = false;
+          setGradientEditorBusy(false);
+          safeDelete(input);
+          safeDelete(preferencesFile);
+          gradientResultMessage = prepareError.message;
+          showError(gradientResultMessage);
+          dispatchSampleEditorState();
+          return;
+        }
+
+        gradientResultMessage = "GraXpert가 전체 해상도 결과를 처리하고 있습니다…";
+        dispatchSampleEditorState();
+        runGraXpert(input, outputBase, preferencesFile, function(processError, stdout, stderr) {
+          if (processError) {
+            gradientResultBusy = false;
+            setGradientEditorBusy(false);
+            cleanupAbortedWork(input, outputBase, conversionFile, preferencesFile);
+            gradientResultMessage = processError.gxCode === "GX_CANCELLED"
+              ? "결과 미리보기 생성이 취소되었습니다."
+              : "GraXpert 처리 실패: " + processError.message;
+            if (processError.gxCode !== "GX_CANCELLED") showError(
+              gradientResultMessage + ((stderr || stdout) ? "\n\n" + (stderr || stdout) : "")
+            );
+            dispatchSampleEditorState();
+            return;
+          }
+
+          var output = findOutput(outputBase);
+          if (!output) {
+            gradientResultBusy = false;
+            setGradientEditorBusy(false);
+            cleanupAbortedWork(input, outputBase, conversionFile, preferencesFile);
+            gradientResultMessage = "GraXpert 결과 파일을 찾지 못했습니다.";
+            showError(gradientResultMessage);
+            dispatchSampleEditorState();
+            return;
+          }
+          var importFile = output;
+          try {
+            if (/\.(fits|fit|fts)$/i.test(output)) {
+              importFile = path.join(workdir, "editor_result_" + stamp + ".tif");
+              convertFitsToTiff(output, importFile);
+            }
+          } catch (conversionError) {
+            gradientResultBusy = false;
+            setGradientEditorBusy(false);
+            cleanupAbortedWork(input, outputBase, conversionFile, preferencesFile);
+            safeDelete(importFile);
+            gradientResultMessage = "결과 변환 실패: " + conversionError.message;
+            showError(gradientResultMessage);
+            dispatchSampleEditorState();
+            return;
+          }
+
+          var processedPreviewFile = "";
+          try {
+            processedPreviewFile = createGradientPreviewFile(importFile, workdir, stamp);
+          } catch (previewError) {
+            gradientResultBusy = false;
+            setGradientEditorBusy(false);
+            cleanupAbortedWork(input, outputBase, conversionFile, preferencesFile);
+            safeDelete(importFile);
+            safeDelete(processedPreviewFile);
+            gradientResultMessage = "결과 Preview 생성 실패: " + previewError.message;
+            showError(gradientResultMessage);
+            dispatchSampleEditorState();
+            return;
+          }
+          gradientResultBusy = false;
+          setGradientEditorBusy(false);
+          safeDelete(input);
+          safeDelete(preferencesFile);
+          if (output !== importFile) safeDelete(output);
+          gradientResultJob = {
+            signature:signature,
+            importFile:importFile,
+            previewFile:processedPreviewFile,
+            output:importFile,
+            backgroundOutput:findBackgroundOutput(outputBase),
+            addBackgroundLayer:!!document.getElementById("addBackgroundLayer").checked,
+            conversionFile:conversionFile,
+            preferencesFile:"",
+            input:"",
+            docId:exportInfo.docId,
+            docName:exportInfo.docName,
+            sourceLayerId:exportInfo.sourceLayerId,
+            width:exportInfo.width,
+            height:exportInfo.height,
+            analysisContext:exportInfo.analysisContext,
+            method:currentGradientMethod(),
+            stamp:stamp
+          };
+          gradientResultContextValid = true;
+          gradientResultMessage = "전체 해상도 결과가 준비되었습니다. 확인 후 Photoshop에 적용하세요.";
+          showOk(gradientResultMessage);
+          dispatchSampleEditorState();
+        }, { editorOnly:true });
+        dispatchSampleEditorState();
+      }
+    );
+  }
+
+  function applyGradientResultPreview() {
+    if (gradientResultBusy || !gradientResultJob) return;
+    if (gradientResultJob.signature !== gradientResultSignature()) {
+      gradientResultMessage = "포인트 또는 설정이 변경되었습니다. 결과를 다시 계산하세요.";
+      dispatchSampleEditorState();
+      return;
+    }
+    var job = gradientResultJob;
+    gradientResultBusy = true;
+    setGradientEditorBusy(true);
+    gradientResultMessage = "Photoshop 작업 문맥을 확인하고 있습니다…";
+    dispatchSampleEditorState();
+    evalPS(
+      'GX_validateProcessingContext(' + job.docId + ',' + job.sourceLayerId + ',' +
+        job.width + ',' + job.height + ',"' + escJs(job.analysisContext) + '","layer-auto")',
+      function(validationError, validationResult) {
+        if (validationError || validationResult !== "OK") {
+          gradientResultBusy = false;
+          setGradientEditorBusy(false);
+          gradientResultContextValid = false;
+          gradientResultMessage = validationError || validationResult || "작업 문맥 확인 실패";
+          showError(gradientResultMessage);
+          dispatchSampleEditorState();
+          return;
+        }
+        evalPS(
+          'GX_importResultById("' + escJs(job.importFile) + '",' + job.docId +
+            ',"' + escJs(job.docName) + '","' + escJs("GraXpert - " + job.method + " Gradient") +
+            '","",' + job.sourceLayerId + ')',
+          function(importError, importResult) {
+            if (importError || importResult !== "OK") {
+              gradientResultBusy = false;
+              setGradientEditorBusy(false);
+              gradientResultMessage = "결과 적용 실패: " + (importError || importResult || "알 수 없는 오류");
+              showError(gradientResultMessage);
+              dispatchSampleEditorState();
+              return;
+            }
+
+            function finishGradientApply(backgroundWarning, backgroundAdded) {
+              gradientResultBusy = false;
+              setGradientEditorBusy(false);
+              cleanupGradientResultJob(job);
+              gradientResultJob = null;
+              gradientResultContextValid = true;
+              gradientResultMessage = "Photoshop에 적용했습니다.";
+              gradientResultAppliedRevision++;
+              showOk("확인한 전체 해상도 Gradient 결과를 현재 레이어 바로 위에 적용했습니다." +
+                (backgroundAdded ? "\nBackground Model을 숨김 레이어로 추가했습니다." : "") +
+                (backgroundWarning ? "\n주의: " + backgroundWarning : ""));
+              dispatchSampleEditorState();
+            }
+
+            if (job.addBackgroundLayer) {
+              gradientResultMessage = "Background Model을 Photoshop 레이어로 가져오는 중…";
+              dispatchSampleEditorState();
+              importBackgroundModelLayer(
+                job.backgroundOutput, path.dirname(job.importFile), job.stamp,
+                job.docId, job.docName, job.sourceLayerId, finishGradientApply
+              );
+            } else {
+              finishGradientApply("", false);
+            }
+          }
+        );
+      }
+    );
+  }
+
+  if (window.addEventListener) {
+    window.addEventListener("beforeunload", function() {
+      if (gradientResultBusy && activeGraXpertController) activeGraXpertController.cancel();
+      else cleanupGradientResultJob(gradientResultJob);
+      if (previewState && previewState.gradientInputFile) safeDelete(previewState.gradientInputFile);
+      safeDelete(previewFile);
+      safeDelete(maskFile);
+    });
+  }
+
   runBtn.onclick = function(){
     clearMsg();
+
+    if (gradientResultBusy) {
+      showError("Gradient Editor 결과 처리가 진행 중입니다.");
+      return;
+    }
 
     if (!fs || !os || !path || !cp) {
       showError("Node.js 모듈을 사용할 수 없습니다. CEP 설정을 확인하세요.");
@@ -3721,7 +4549,8 @@
         showError(
           gradientMethod + " 실행에는 최소 " + minimumPoints +
           "개의 사용 가능한 배경 포인트가 필요합니다.\n" +
-          "현재 사용 가능: " + usableCount + "개 (빨간 Point는 제외됨)"
+          "현재 적합 Point: " + usableCount + "개\n" +
+          "초록색 적합 Point만 사용하며 주황색 주의와 빨간색 제외 Point는 사용하지 않습니다."
         );
         return;
       }
@@ -3740,13 +4569,15 @@
     var preferencesFile = mode === "background" && gradientMethod !== "AI"
       ? path.join(workdir, "preferences_" + stamp + ".json")
       : "";
-    var scope = selected("scope") || "document";
+    var scope = mode === "background" ? "layer" :
+      (mode === "denoise" ? "layer-auto" : "layer");
+    var contextScope = (mode === "background" || mode === "denoise") ? "layer-auto" : scope;
 
     setBusy(true, "입력 이미지 준비 중…");
     setProgress(10, "Photoshop에서 RGB 16-bit TIFF 준비 중…");
 
     evalPS(
-      'GX_exportInput("' + escJs(input) + '","' + scope + '","' + scope + '")',
+      'GX_exportInput("' + escJs(input) + '","' + scope + '","' + contextScope + '")',
       function(err, result) {
         if (err || !result || result.indexOf("OK|") !== 0) {
           setBusy(false);
@@ -3771,7 +4602,7 @@
 
         if (mode === "background" && gradientMethod !== "AI") {
           var gradientContextError = previewContextError(
-            previewState, exportInfo, "background", scope
+            previewState, exportInfo, "background", contextScope
           );
           if (gradientContextError) {
             setBusy(false);
@@ -3830,7 +4661,7 @@
           }
 
           var output = findOutput(outputBase);
-          var backgroundSavedPath = "";
+          var backgroundOutput = "";
           var backgroundWarning = "";
 
           if (!output) {
@@ -3843,18 +4674,10 @@
             return;
           }
 
-          if (mode === "background" && document.getElementById("saveBackground").checked) {
-            var backgroundOutput = findBackgroundOutput(outputBase);
+          if (mode === "background" && document.getElementById("addBackgroundLayer").checked) {
+            backgroundOutput = findBackgroundOutput(outputBase);
             if (!backgroundOutput) {
-              backgroundWarning = "Background model 결과 파일을 찾지 못했습니다.";
-            } else {
-              try {
-                backgroundSavedPath = saveBackgroundOutput(backgroundOutput, docName, stamp);
-              } catch (backgroundErr) {
-                backgroundWarning =
-                  "Background model 저장 실패: " + backgroundErr.message +
-                  "\n임시 파일은 보존했습니다: " + backgroundOutput;
-              }
+              backgroundWarning = "Background Model 결과 파일을 찾지 못했습니다.";
             }
           }
 
@@ -3885,7 +4708,6 @@
             showError(
               "GraXpert 처리는 완료됐지만 FITS → TIFF 변환 실패\n\n" +
               convErr.message +
-              (backgroundSavedPath ? "\n\nBackground model 저장 경로:\n" + backgroundSavedPath : "") +
               (backgroundWarning ? "\n\n" + backgroundWarning : "")
             );
             return;
@@ -3910,24 +4732,40 @@
                 showError(
                   "결과 가져오기 실패:\n" +
                   (impErr || impResult || "알 수 없는 오류") +
-                  (backgroundSavedPath ? "\n\nBackground model 저장 경로:\n" + backgroundSavedPath : "") +
                   (backgroundWarning ? "\n\n" + backgroundWarning : "")
                 );
                 return;
               }
-              setBusy(false);
-              setProgress(100, "완료");
-              document.getElementById("progressWrap").className = "progress-wrap";
-              cleanupSuccessfulWork(input, output, importFile, conversionFile, preferencesFile);
-              showOk(
-                "완료: `" + layerName + "` 선형 레이어를 원본 문서에 추가했습니다." +
-                (scope === "sky" ? "\n지정 영역 레이어 마스크를 적용했습니다." : "") +
-                (backgroundSavedPath ? "\n\nBackground model 저장 경로:\n" + backgroundSavedPath : "") +
-                (backgroundWarning ? "\n\n주의: " + backgroundWarning : "")
-              );
-              setTimeout(function(){
-                document.getElementById("progressWrap").className = "progress-wrap hidden";
-              }, 2500);
+
+              function finishResultImport(modelWarning, modelAdded) {
+                if (modelWarning) backgroundWarning = modelWarning;
+                setBusy(false);
+                setProgress(100, "완료");
+                document.getElementById("progressWrap").className = "progress-wrap";
+                cleanupSuccessfulWork(input, output, importFile, conversionFile, preferencesFile);
+                cleanupBackgroundModelFiles(backgroundOutput, backgroundOutput);
+                showOk(
+                  "완료: `" + layerName + "` 선형 레이어를 원본 문서에 추가했습니다." +
+                  (scope === "sky" ? "\n지정 영역 레이어 마스크를 적용했습니다." : "") +
+                  ((mode === "background" || mode === "denoise") && maskToken
+                    ? "\n선택 영역 또는 현재 레이어 마스크를 결과 레이어에 자동 적용했습니다." : "") +
+                  (modelAdded ? "\nBackground Model을 숨김 레이어로 추가했습니다." : "") +
+                  (backgroundWarning ? "\n\n주의: " + backgroundWarning : "")
+                );
+                setTimeout(function(){
+                  document.getElementById("progressWrap").className = "progress-wrap hidden";
+                }, 2500);
+              }
+
+              if (mode === "background" && document.getElementById("addBackgroundLayer").checked && backgroundOutput) {
+                setProgress(94, "Background Model을 Photoshop 레이어로 가져오는 중…");
+                importBackgroundModelLayer(
+                  backgroundOutput, workdir, stamp, docId, docName, sourceLayerId,
+                  finishResultImport
+                );
+              } else {
+                finishResultImport(backgroundWarning, false);
+              }
             }
           );
         });
@@ -3943,12 +4781,13 @@
       spawnGraXpertProcess: spawnGraXpertProcess,
       readRgbTiffInfo: readRgbTiffInfo,
       readUint16RgbTiffInfo: readUint16RgbTiffInfo,
+      createTiffPreviewBmp: createTiffPreviewBmp,
       createUint16RgbTiffHeader: createUint16RgbTiffHeader,
       createFloat32RgbTiffHeader: createFloat32RgbTiffHeader,
       convertFitsToTiff: convertFitsToTiff,
       findBackgroundOutput: findBackgroundOutput,
-      safeFileStem: safeFileStem,
-      saveBackgroundOutput: saveBackgroundOutput,
+      prepareBackgroundModelImport: prepareBackgroundModelImport,
+      cleanupBackgroundModelFiles: cleanupBackgroundModelFiles,
       createGradientPreferences: createGradientPreferences,
       buildGraXpertArgs: buildGraXpertArgs,
       calculateCanvasSize: calculateCanvasSize,
@@ -3965,6 +4804,8 @@
       neutralizeGeneratedTiff: neutralizeGeneratedTiff,
       parsePhotoshopExport: parsePhotoshopExport,
       previewContextError: previewContextError,
+      previewRegionSource: previewRegionSource,
+      previewRegionStatusText: previewRegionStatusText,
       analyzeSamplePoint: analyzeSamplePoint,
       analyzeDiffuseStructure: analyzeDiffuseStructure,
       applyPointQuality: applyPointQuality,
@@ -3978,7 +4819,9 @@
       refreshNeutralReadyState: refreshNeutralReadyState,
       isNeutralReadyForTest: function() { return neutralAutoReady; },
       setModeForTest: function(value) { mode = value; },
+      addSamplePointOriginal: addSamplePointOriginal,
       addSamplePointAt: addSamplePointAt,
+      moveSamplePointOriginal: moveSamplePointOriginal,
       chooseBestQualityCandidate: chooseBestQualityCandidate,
       neutralQualityWeight: neutralQualityWeight,
       selectSpatialNeutralCandidates: selectSpatialNeutralCandidates,

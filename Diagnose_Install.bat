@@ -37,12 +37,17 @@ for %%V in (9 10 11 12 13 14 15) do (
     )
 )
 echo.
-where GraXpert-win64.exe >nul 2>&1
+where GraXpert.exe >nul 2>&1
 if errorlevel 1 (
-    echo [INFO] GraXpert-win64.exe is not available on PATH.
-    echo        Set its full path in the panel.
+    if exist "%LOCALAPPDATA%\Programs\GraXpert\GraXpert.exe" (
+        echo [OK] GraXpert.exe found in the standard installation folder.
+        echo      %LOCALAPPDATA%\Programs\GraXpert\GraXpert.exe
+    ) else (
+        echo [INFO] GraXpert.exe is not available on PATH or in the standard installation folder.
+        echo        Set its full path in the panel.
+    )
 ) else (
-    echo [OK] GraXpert-win64.exe found on PATH.
+    echo [OK] GraXpert.exe found on PATH.
 )
 echo.
 pause

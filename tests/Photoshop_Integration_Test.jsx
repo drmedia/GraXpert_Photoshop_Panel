@@ -17,6 +17,8 @@
     var tempTiff = new File(testDir.fsName + "/GraXpert_Integration_Temp.tif");
     var floatResultTiff = new File(testDir.fsName + "/GraXpert_Integration_Float32_Result.tif");
     var tempPreview = new File(testDir.fsName + "/GraXpert_Integration_Preview.png");
+    var tempCachedInput = new File(testDir.fsName + "/GraXpert_Integration_Cached_Input.tif");
+    var processedPreview = new File(testDir.fsName + "/GraXpert_Integration_Processed_Preview.png");
     var tempMask = new File(testDir.fsName + "/GraXpert_Integration_Mask.png");
     var originalDialogs = app.displayDialogs;
     var createdDocuments = [];
@@ -46,7 +48,7 @@
     }
 
     function removeTempFiles() {
-        var files = [tempTiff, tempPreview, tempMask];
+        var files = [tempTiff, tempPreview, tempCachedInput, processedPreview, tempMask];
         for (var i = 0; i < files.length; i++) {
             try { if (files[i].exists) files[i].remove(); } catch (_) {}
         }
@@ -144,6 +146,15 @@
             var exported = GX_exportInput(tempTiff.fsName, "document");
             var info = exportParts(exported);
             assertTrue(tempTiff.exists && tempTiff.length > 0, "TIFF 파일이 생성되지 않았습니다.");
+            var contextValidation = GX_validateProcessingContext(
+                Number(info.documentId), info.sourceLayerId, 32, 32, info.analysisContext, "document"
+            );
+            assertTrue(contextValidation === "OK", "결과 적용 문맥 검사 실패: " + contextValidation);
+            var previewExported = GX_exportProcessedPreview(
+                tempTiff.fsName, processedPreview.fsName, 16, 16
+            );
+            assertTrue(previewExported === "OK|16|16", "처리 결과 Preview 생성 실패: " + previewExported);
+            assertTrue(processedPreview.exists && processedPreview.length > 0, "처리 결과 Preview 파일이 없습니다.");
             var imported = GX_importResultById(
                 tempTiff.fsName, info.documentId, info.documentName, "GraXpert Test", info.maskToken
             );
@@ -186,6 +197,24 @@
                 "결과 레이어가 원본 레이어 바로 위에 있지 않습니다.");
             assertTrue(target.layers[0].name === upper.name,
                 "기존 상단 레이어의 위치가 변경되었습니다.");
+
+            var modelImported = GX_importResultById(
+                tempTiff.fsName, info.documentId, info.documentName,
+                "GraXpert - Background Model", "", info.sourceLayerId, true
+            );
+            assertTrue(modelImported === "OK", "Background Model 가져오기 실패: " + modelImported);
+            var modelIndex = -1;
+            resultIndex = -1;
+            sourceIndex = -1;
+            for (layerIndex=0; layerIndex<target.layers.length; layerIndex++) {
+                if (target.layers[layerIndex].name === "GX Gradient") resultIndex = layerIndex;
+                if (target.layers[layerIndex].name === "GraXpert - Background Model") modelIndex = layerIndex;
+                if (target.layers[layerIndex].id === source.id) sourceIndex = layerIndex;
+            }
+            assertTrue(resultIndex >= 0 && modelIndex === resultIndex + 1 && sourceIndex === modelIndex + 1,
+                "Background Model이 Gradient 결과 아래와 원본 레이어 위에 배치되지 않았습니다.");
+            assertTrue(target.layers[modelIndex].visible === false,
+                "Background Model 레이어가 숨김 상태가 아닙니다.");
         });
 
         test("처리 시작 레이어가 삭제되면 결과 가져오기 중단", function () {
@@ -225,7 +254,7 @@
             app.activeDocument = target;
             var originalChannelCount = target.channels.length;
             var previewResult = GX_exportSamplePreview(
-                tempPreview.fsName, tempMask.fsName, 1400, 900, "layer-auto"
+                tempPreview.fsName, tempMask.fsName, 1400, 900, "layer-auto", tempCachedInput.fsName
             );
             var previewInfo = previewParts(previewResult);
             assertTrue(previewResult.indexOf("OK|") === 0, "현재 레이어 분석 Preview 실패: " + previewResult);
@@ -235,6 +264,7 @@
                 "Preview에서 현재 레이어 ID를 보존하지 못했습니다.");
             assertTrue(previewInfo.analysisContext.indexOf("selection:") === 0,
                 "Preview 선택 영역 식별 정보가 없습니다.");
+            assertTrue(tempCachedInput.exists, "Gradient용 전체 해상도 입력 캐시가 생성되지 않았습니다.");
             assertTrue(target.channels.length === originalChannelCount, "분석 Preview 후 임시 채널이 남았습니다.");
             assertTrue(GX_hasSelection(target), "분석 Preview 후 원래 선택 영역이 복원되지 않았습니다.");
 
