@@ -6,6 +6,12 @@ GraXpert stand-alone CLI를 Adobe Photoshop에서 실행하고, 처리 결과를
 
 > 원본 픽셀 레이어는 직접 변경하지 않습니다. 결과는 처리 시작 시 선택한 레이어 바로 위에 새 레이어로 추가됩니다.
 
+## 비공식 프로젝트 안내
+
+이 프로젝트는 사용자가 독립적으로 개발한 비공식 서드파티 Photoshop 패널입니다. GraXpert 프로젝트 및 Adobe와 공식적인 제휴, 승인, 보증 관계가 없습니다.
+
+이 저장소와 배포 패키지에는 GraXpert 실행 파일이 포함되지 않습니다. 사용자는 GraXpert를 별도로 설치해야 하며, GraXpert와 Adobe Photoshop의 사용 조건 및 라이선스를 각각 준수해야 합니다. GraXpert와 Adobe Photoshop을 비롯한 제품명 및 상표는 각 권리자에게 귀속됩니다.
+
 ## 주요 기능
 
 ### Background Extraction
@@ -96,7 +102,6 @@ GraXpert의 기본 설치 위치는 다음과 같습니다.
 
 - [한국어 사용자 설명서](USER_GUIDE_KO.txt)
 - [상세 기능 및 개발 문서](README_KO.txt)
-- [Sample Point 기능 개발 요청서](Photoshop용%20GraXpert%20RBF%20Sample%20Point%20기능%20개발%20요청.md)
 
 ## 테스트
 
@@ -123,3 +128,9 @@ Photoshop을 완전히 종료한 뒤 `Uninstall_Windows.bat`를 실행합니다.
 ```powershell
 Uninstall_Windows.bat /remove-debug
 ```
+
+## 라이선스
+
+이 프로젝트는 [GNU General Public License v3.0](LICENSE)에 따라 배포됩니다.
+
+Copyright (C) 2026 drmedia

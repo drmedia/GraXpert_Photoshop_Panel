@@ -35,3 +35,5 @@ test-images/*.tif
 test-images/*.tiff
 test-images/results/
 
+# Local development notes
+/Photoshop용 GraXpert RBF Sample Point 기능 개발 요청.md
