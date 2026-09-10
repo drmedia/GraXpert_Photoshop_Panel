@@ -199,6 +199,7 @@ select {
   color:#eee; border:1px solid #484848;
 }
 
+.execution-area { margin-top:2px; }
 .run-btn {
   width:100%; border:0; border-radius:9px; padding:13px 10px;
   font-size:14px; font-weight:700; background:#1473e6; color:#fff; cursor:pointer;
@@ -226,23 +227,6 @@ select {
 .footer-version { color:#999; font-weight:600; margin-bottom:2px; }
 .hidden { display:none !important; }
 
-.busy-banner{
-  border:1px solid #6c5b28;
-  background:#3b3422;
-  border-radius:9px;
-  padding:10px 12px;
-  margin-bottom:10px;
-}
-.busy-title{
-  font-weight:700;
-  font-size:13px;
-  margin-bottom:3px;
-}
-.busy-text{
-  color:#d7c99a;
-  font-size:11px;
-  line-height:1.45;
-}
 .panel-busy .card,
 .panel-busy .tabs{
   opacity:.72;

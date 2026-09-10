@@ -38,9 +38,22 @@
   var showPoints = document.getElementById("showPoints");
   var resultStatus = document.getElementById("resultStatus");
   var resultBusyOverlay = document.getElementById("resultBusyOverlay");
+  var contextWarningOverlay = document.getElementById("contextWarningOverlay");
   var generateResult = document.getElementById("generateResult");
   var cancelResult = document.getElementById("cancelResult");
   var applyResult = document.getElementById("applyResult");
+  var toggleFullscreen = document.getElementById("toggleFullscreen");
+  var stretchPresetSelect = document.getElementById("stretchPreset");
+  var saturationInput = document.getElementById("saturation");
+  var saturationValue = document.getElementById("saturationValue");
+  var autoStretch = document.getElementById("autoStretch");
+  var editorInterpolation = document.getElementById("editorInterpolation");
+  var editorCorrection = document.getElementById("editorCorrection");
+  var editorSmoothing = document.getElementById("editorSmoothing");
+  var editorSmoothingValue = document.getElementById("editorSmoothingValue");
+  var editorAddBackgroundLayer = document.getElementById("editorAddBackgroundLayer");
+  var processingToggle = document.getElementById("processingToggle");
+  var processingBody = document.getElementById("processingBody");
   var state = null;
   var loadedPreviewFile = "";
   var sourcePixels = null;
@@ -49,7 +62,7 @@
   var displayCanvas = null;
   var displayKey = "";
   var updatingControls = false;
-  var exchangeFs = null, exchangeOs = null, exchangePath = null;
+  var exchangeFs = null, exchangeOs = null, exchangePath = null, windowChildProcess = null;
   var lastStateText = "";
   var lastStateFileStamp = "";
   var zoomMode = "fit";
@@ -62,16 +75,114 @@
   var pointsVisible = true;
   var loadedResultPreviewFile = "";
   var lastAppliedRevision = null;
+  var editorFullscreen = false;
+  var restoreWindowBounds = null;
+  var redrawTimer = null;
   try {
     exchangeFs = require("fs");
     exchangeOs = require("os");
     exchangePath = require("path");
+    windowChildProcess = require("child_process");
   } catch (_) {}
 
   function directBridge() {
     try {
       return window.opener && !window.opener.closed ? window.opener.GX_SAMPLE_EDITOR_BRIDGE : null;
     } catch (_) { return null; }
+  }
+
+  function currentWindowBounds() {
+    return {
+      x:typeof window.screenX === "number" ? window.screenX : 0,
+      y:typeof window.screenY === "number" ? window.screenY : 0,
+      outerWidth:Math.max(650, Number(window.outerWidth) || Number(window.innerWidth) || 1100),
+      outerHeight:Math.max(480, Number(window.outerHeight) || Number(window.innerHeight) || 800),
+      innerWidth:Math.max(650, Number(window.innerWidth) || 1100),
+      innerHeight:Math.max(480, Number(window.innerHeight) || 800)
+    };
+  }
+
+  function resizeEditorWindow(bounds) {
+    var resizedByCep = false;
+    try {
+      if (window.__adobe_cep__ && typeof window.__adobe_cep__.resizeContent === "function") {
+        window.__adobe_cep__.resizeContent(Math.round(bounds.innerWidth), Math.round(bounds.innerHeight));
+        resizedByCep = true;
+      }
+    } catch (_) {}
+    if (!resizedByCep) {
+      try { window.resizeTo(Math.round(bounds.outerWidth), Math.round(bounds.outerHeight)); } catch (_) {}
+    }
+    try { window.moveTo(Math.round(bounds.x), Math.round(bounds.y)); } catch (_) {}
+    window.setTimeout(function() {
+      displayKey = "";
+      drawLocalEditor();
+    }, 80);
+  }
+
+  function setNativeWindowMaximized(maximized, callback) {
+    if (!windowChildProcess || !windowChildProcess.execFile || IS_NEUTRAL) {
+      callback(false);
+      return;
+    }
+    var csharp =
+      'using System;using System.Text;using System.Runtime.InteropServices;' +
+      'public static class GXEditorWindow{' +
+      'public delegate bool EnumProc(IntPtr h,IntPtr l);' +
+      '[DllImport("user32.dll")]public static extern bool EnumWindows(EnumProc p,IntPtr l);' +
+      '[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetWindowText(IntPtr h,StringBuilder s,int n);' +
+      '[DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);' +
+      '[DllImport("user32.dll")]public static extern bool ShowWindowAsync(IntPtr h,int c);' +
+      'public static bool Set(string title,int command){IntPtr found=IntPtr.Zero;' +
+      'EnumWindows(delegate(IntPtr h,IntPtr l){if(!IsWindowVisible(h))return true;' +
+      'StringBuilder s=new StringBuilder(512);GetWindowText(h,s,512);' +
+      'if(s.ToString()==title){found=h;return false;}return true;},IntPtr.Zero);' +
+      'return found!=IntPtr.Zero&&ShowWindowAsync(found,command);}}';
+    var psCommand = "$ErrorActionPreference='Stop';Add-Type -TypeDefinition '" +
+      csharp.replace(/'/g, "''") + "';[GXEditorWindow]::Set('" +
+      WINDOW_TITLE.replace(/'/g, "''") + "'," + (maximized ? "3" : "9") + ")";
+    try {
+      windowChildProcess.execFile(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", psCommand],
+        { windowsHide:true },
+        function(error, stdout) {
+          callback(!error && /true/i.test(String(stdout || "")));
+        }
+      );
+    } catch (_) { callback(false); }
+  }
+
+  function setEditorFullscreen(open) {
+    if (!toggleFullscreen || IS_NEUTRAL) return;
+    if (open === editorFullscreen) return;
+    if (open) {
+      restoreWindowBounds = currentWindowBounds();
+      var availableWidth = Math.max(650, Number(screen.availWidth) || restoreWindowBounds.outerWidth);
+      var availableHeight = Math.max(480, Number(screen.availHeight) || restoreWindowBounds.outerHeight);
+      var frameWidth = Math.max(0, restoreWindowBounds.outerWidth - restoreWindowBounds.innerWidth);
+      var frameHeight = Math.max(0, restoreWindowBounds.outerHeight - restoreWindowBounds.innerHeight);
+      editorFullscreen = true;
+      var fullscreenBounds = {
+        x:typeof screen.availLeft === "number" ? screen.availLeft : 0,
+        y:typeof screen.availTop === "number" ? screen.availTop : 0,
+        outerWidth:availableWidth,
+        outerHeight:availableHeight,
+        innerWidth:Math.max(650, availableWidth - frameWidth),
+        innerHeight:Math.max(480, availableHeight - frameHeight)
+      };
+      setNativeWindowMaximized(true, function(success) {
+        if (!success) resizeEditorWindow(fullscreenBounds);
+      });
+    } else {
+      editorFullscreen = false;
+      setNativeWindowMaximized(false, function(success) {
+        if (!success && restoreWindowBounds) resizeEditorWindow(restoreWindowBounds);
+      });
+    }
+    toggleFullscreen.textContent = editorFullscreen ? "원래 크기" : "전체 화면";
+    toggleFullscreen.className = editorFullscreen ? "fullscreen-btn active" : "fullscreen-btn";
+    toggleFullscreen.setAttribute("aria-pressed", editorFullscreen ? "true" : "false");
   }
 
   function exchangeFile(name) {
@@ -136,6 +247,10 @@
       else if (action === "setPointsPerRow") api.setPointsPerRow(value);
       else if (action === "setGridTolerance") api.setGridTolerance(value);
       else if (action === "setQualityPreset") api.setQualityPreset(value);
+      else if (action === "setInterpolation") api.setInterpolation(value);
+      else if (action === "setCorrection") api.setCorrection(value);
+      else if (action === "setSmoothing") api.setSmoothing(value);
+      else if (action === "setAddBackgroundLayer") api.setAddBackgroundLayer(value);
       else if (action === "setSelectionOnly") api.setSelectionOnly(value);
       else if (action === "previewGradient") api.previewGradient();
       else if (action === "applyGradient") api.applyGradient();
@@ -158,6 +273,7 @@
     if (name === "15% Bg, 3 sigma") return { bg:0.15, sigma:3, enabled:true };
     if (name === "20% Bg, 3 sigma") return { bg:0.20, sigma:3, enabled:true };
     if (name === "30% Bg, 2 sigma") return { bg:0.30, sigma:2, enabled:true };
+    if (name === "40% Bg, 1.5 sigma") return { bg:0.40, sigma:1.5, enabled:true };
     return { bg:0, sigma:0, enabled:false };
   }
 
@@ -210,29 +326,44 @@
 
   function buildDisplayCanvas() {
     if (!sourcePixels || !state) return null;
-    var saturation = Math.max(0, Math.min(3, Number(state.saturation)));
+    var saturation = IS_NEUTRAL ? Math.max(0, Math.min(3, Number(state.saturation))) : 1;
     if (!isFinite(saturation)) saturation = 1;
-    var key = loadedPreviewFile + "|" + state.stretch + "|" + saturation.toFixed(1);
+    var stretchName = !IS_NEUTRAL && state.stretch !== "No Stretch"
+      ? "40% Bg, 1.5 sigma" : state.stretch;
+    var key = loadedPreviewFile + "|" + viewMode + "|" + stretchName + "|" + saturation.toFixed(1);
     if (displayCanvas && displayKey === key) return displayCanvas;
-    var preset = getStretchPreset(state.stretch);
+    var preset = getStretchPreset(stretchName);
+    var histogramSource = !IS_NEUTRAL && originalPixels ? originalPixels : sourcePixels;
+    var linkedGradientStretch = !IS_NEUTRAL && preset.enabled;
     var histograms = [[], [], []];
     var c, h;
     for (c=0; c<3; c++) for (h=0; h<256; h++) histograms[c][h] = 0;
-    var pixelCount = sourcePixels.width * sourcePixels.height;
+    var pixelCount = histogramSource.width * histogramSource.height;
     var stride = Math.max(1, Math.floor(Math.sqrt(pixelCount / 120000)));
     var x, y, at, channel;
     if (preset.enabled) {
-      for (y=0; y<sourcePixels.height; y += stride) {
-        for (x=0; x<sourcePixels.width; x += stride) {
-          at = (y * sourcePixels.width + x) * 4;
-          for (channel=0; channel<3; channel++) histograms[channel][sourcePixels.data[at + channel]]++;
+      for (y=0; y<histogramSource.height; y += stride) {
+        for (x=0; x<histogramSource.width; x += stride) {
+          at = (y * histogramSource.width + x) * 4;
+          if (linkedGradientStretch) {
+            var luminance = Math.max(0, Math.min(255, Math.round(
+              0.299 * histogramSource.data[at] + 0.587 * histogramSource.data[at + 1] +
+              0.114 * histogramSource.data[at + 2]
+            )));
+            histograms[0][luminance]++;
+          } else {
+            for (channel=0; channel<3; channel++) histograms[channel][histogramSource.data[at + channel]]++;
+          }
         }
       }
     }
-    var parameters = preset.enabled ? [
-      stretchParameters(histograms[0], preset), stretchParameters(histograms[1], preset),
-      stretchParameters(histograms[2], preset)
-    ] : null;
+    var parameters = null;
+    if (preset.enabled) {
+      var firstParameter = stretchParameters(histograms[0], preset);
+      parameters = linkedGradientStretch
+        ? [firstParameter, firstParameter, firstParameter]
+        : [firstParameter, stretchParameters(histograms[1], preset), stretchParameters(histograms[2], preset)];
+    }
     var output = new Uint8ClampedArray(sourcePixels.data.length);
     for (at=0; at<sourcePixels.data.length; at += 4) {
       var red = sourcePixels.data[at];
@@ -349,6 +480,16 @@
     }
   }
 
+  function scheduleEditorRedraw() {
+    if (redrawTimer) window.clearTimeout(redrawTimer);
+    redrawTimer = window.setTimeout(function() {
+      redrawTimer = null;
+      if (!state || !state.ready || !sourcePixels) return;
+      displayKey = "";
+      drawLocalEditor();
+    }, 60);
+  }
+
   function loadPreviewIfNeeded() {
     if (!state || !state.ready || !state.previewFile) return;
     if (loadedPreviewFile === state.previewFile && sourcePixels) { drawLocalEditor(); return; }
@@ -369,6 +510,7 @@
       sourcePixels = context.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
       originalPixels = sourcePixels;
       loadedPreviewFile = expectedFile; displayKey = ""; drawLocalEditor();
+      scheduleEditorRedraw();
     };
     image.onerror = function() {
       emptyMessage.textContent = "Sample Preview 이미지를 불러올 수 없습니다."; emptyMessage.className = "";
@@ -377,7 +519,7 @@
   }
 
   function loadResultPreviewIfNeeded() {
-    if (!state || !state.resultReady || !state.resultPreviewFile) return;
+    if (!state || !state.resultAvailable || !state.resultPreviewFile) return;
     if (loadedResultPreviewFile === state.resultPreviewFile && resultPixels) {
       if (viewMode === "result") { sourcePixels = resultPixels; displayKey = ""; drawLocalEditor(); }
       return;
@@ -405,7 +547,7 @@
   }
 
   function setViewMode(nextMode) {
-    if (nextMode === "result" && (!state || !state.resultReady || !resultPixels)) return;
+    if (nextMode === "result" && (!state || !state.resultAvailable || !resultPixels)) return;
     viewMode = nextMode === "result" ? "result" : "original";
     sourcePixels = viewMode === "result" ? resultPixels : originalPixels;
     displayKey = "";
@@ -417,45 +559,62 @@
   function syncResultControls(current) {
     if (!resultStatus) return;
     var ready = !!current.resultReady;
+    var available = !!current.resultAvailable;
     var busy = !!current.resultBusy;
-    if (ready && current.resultPreviewFile && current.resultPreviewFile !== loadedResultPreviewFile) {
+    var contextOutdated = !!current.previewContextOutdated;
+    if (available && current.resultPreviewFile && current.resultPreviewFile !== loadedResultPreviewFile) {
       resultPixels = null;
       viewMode = "result";
     }
-    resultStatus.textContent = current.resultMessage || (ready ? "적용 가능한 결과가 준비되었습니다." : "결과 미리보기 전");
-    resultStatus.className = "result-status" + (busy ? " busy" : ready ? " ready" : current.resultOutdated ? " outdated" : "");
-    if (generateResult) generateResult.disabled = busy || !current.ready;
+    resultStatus.textContent = contextOutdated
+      ? (current.previewContextMessage || "현재 레이어가 변경되었습니다.")
+      : current.resultMessage || (ready ? "적용 가능한 결과가 준비되었습니다." : "결과 미리보기 전");
+    resultStatus.className = "result-status" + (busy ? " busy" : contextOutdated
+      ? " outdated" : ready ? " ready" : current.resultOutdated ? " outdated" : "");
+    if (generateResult) generateResult.disabled = busy || contextOutdated || !current.ready;
     if (generateResult) {
       generateResult.className = "result-generate" + (busy ? " busy" : "");
-      generateResult.textContent = busy ? "처리 중…" : current.resultOutdated ? "결과 다시 계산" : "결과 미리보기 생성";
+      generateResult.textContent = busy ? "계산 중…" : current.resultOutdated
+        ? "빠른 미리보기 다시 계산" : "빠른 미리보기 생성";
     }
     if (resultBusyOverlay) resultBusyOverlay.className = busy
       ? "result-busy-overlay" : "result-busy-overlay hidden";
     if (cancelResult) cancelResult.className = busy && current.resultCancelable ? "" : "hidden";
-    if (applyResult) applyResult.disabled = busy || !ready;
-    if (viewResult) viewResult.disabled = !ready;
+    if (applyResult) applyResult.disabled = busy || contextOutdated || !ready;
+    if (viewResult) viewResult.disabled = !available;
     var lockedControls = [
       "pointsPerRow", "gridTolerance", "sampleSize", "qualityPreset", "selectionOnly",
-      "autoSamples", "undoSample", "clearSamples"
+      "autoSamples", "undoSample", "clearSamples", "autoStretch", "editorInterpolation",
+      "editorCorrection", "editorSmoothing", "editorAddBackgroundLayer"
     ];
     for (var lockedIndex=0; lockedIndex<lockedControls.length; lockedIndex++) {
       var lockedControl = document.getElementById(lockedControls[lockedIndex]);
-      if (lockedControl) lockedControl.disabled = busy;
+      if (lockedControl) lockedControl.disabled = busy || contextOutdated;
     }
-    if (!ready && viewMode === "result") setViewMode("original");
+    if (!available && viewMode === "result") setViewMode("original");
     if (viewOriginal) viewOriginal.className = viewMode === "original" ? "active" : "";
     if (viewResult) viewResult.className = viewMode === "result" ? "active" : "";
   }
 
   function syncControls(current) {
     updatingControls = true;
-    document.getElementById("stretchPreset").value = current.stretch;
-    document.getElementById("saturation").value = current.saturation;
-    document.getElementById("saturationValue").textContent = Number(current.saturation).toFixed(1);
+    if (stretchPresetSelect) stretchPresetSelect.value = current.stretch;
+    if (saturationInput) saturationInput.value = current.saturation;
+    if (saturationValue) saturationValue.textContent = Number(current.saturation).toFixed(1);
+    if (autoStretch) {
+      var autoStretchOn = current.stretch !== "No Stretch";
+      autoStretch.className = autoStretchOn ? "auto-stretch-toggle active" : "auto-stretch-toggle";
+      autoStretch.setAttribute("aria-pressed", autoStretchOn ? "true" : "false");
+    }
     document.getElementById("sampleSize").value = current.sampleSize;
     if (pointsPerRowInput) pointsPerRowInput.value = current.pointsPerRow || 15;
     if (gridToleranceInput) gridToleranceInput.value = Number(current.gridTolerance).toFixed(1);
     if (qualityPresetSelect) qualityPresetSelect.value = current.qualityPreset || "standard";
+    if (editorInterpolation) editorInterpolation.value = current.interpolation || "RBF";
+    if (editorCorrection) editorCorrection.value = current.correction || "Subtraction";
+    if (editorSmoothing) editorSmoothing.value = Number(current.smoothing).toFixed(2);
+    if (editorSmoothingValue) editorSmoothingValue.textContent = Number(current.smoothing).toFixed(2);
+    if (editorAddBackgroundLayer) editorAddBackgroundLayer.checked = !!current.addBackgroundLayer;
     document.getElementById("selectionOnly").checked = current.selectionOnly;
     if (selectionOnlyLabel && !IS_NEUTRAL) {
       selectionOnlyLabel.textContent = current.regionSource === "selection"
@@ -486,12 +645,33 @@
       document.getElementById("pointInfo").textContent = current.pointEditMessage;
     }
     if (gridStatus) {
-      var gridStatusClass = current.gridDirty ? "grid-status" : "grid-status hidden";
+      var gridStatusVisible = current.gridDirty || current.previewContextOutdated;
+      var gridStatusClass = gridStatusVisible ? "grid-status" : "grid-status hidden";
       if (gridStatus.className !== gridStatusClass) gridStatus.className = gridStatusClass;
+      gridStatus.textContent = current.previewContextOutdated ? "현재 레이어 변경됨" : "포인트 재생성 필요";
+    }
+    if (contextWarningOverlay) {
+      contextWarningOverlay.textContent = current.previewContextMessage ||
+        "현재 레이어가 변경되었습니다. 메인 패널에서 Gradient Editor 열기를 다시 누르세요.";
+      contextWarningOverlay.className = current.previewContextOutdated
+        ? "context-warning-overlay" : "context-warning-overlay hidden";
+    }
+    if (current.previewContextOutdated && pointDragState) {
+      pointDragState = null;
+      canvas.className = "";
     }
     if (!IS_NEUTRAL) syncResultControls(current);
     syncControls(current);
     if (!current.ready) {
+      loadedPreviewFile = "";
+      loadedResultPreviewFile = "";
+      sourcePixels = null;
+      originalPixels = null;
+      resultPixels = null;
+      displayCanvas = null;
+      displayKey = "";
+      canvas.width = 1;
+      canvas.height = 1;
       emptyMessage.textContent = IS_NEUTRAL
         ? "메인 패널에서 배경 분석을 먼저 실행하세요."
         : "메인 패널에서 포인트 자동 생성을 먼저 실행하세요.";
@@ -555,7 +735,7 @@
   }
 
   canvas.onclick = function(event) {
-    if (!state || !state.ready || state.resultBusy) return;
+    if (!state || !state.ready || state.resultBusy || state.previewContextOutdated) return;
     if (suppressNextClick) { suppressNextClick = false; return; }
     if (!pointsVisible) return;
     var pos = canvasPosition(event), api = directBridge();
@@ -564,7 +744,7 @@
   };
   canvas.oncontextmenu = function(event) {
     event.preventDefault();
-    if (!state || !state.ready || state.resultBusy || !pointsVisible) return false;
+    if (!state || !state.ready || state.resultBusy || state.previewContextOutdated || !pointsVisible) return false;
     var pos = canvasPosition(event), api = directBridge();
     if (api) api.remove(canvas, pos.x, pos.y, 1, 1);
     else { var nearest = nearestPoint(pos); if (nearest) sendEvent({ action:"remove", index:nearest.index }); }
@@ -598,7 +778,8 @@
   });
 
   canvas.addEventListener("mousedown", function(event) {
-    if (event.button === 0 && !spacePressed && pointsVisible && state && state.ready && !state.resultBusy) {
+    if (event.button === 0 && !spacePressed && pointsVisible && state && state.ready &&
+        !state.resultBusy && !state.previewContextOutdated) {
       var dragTarget = nearestPoint(canvasPosition(event));
       if (dragTarget) {
         event.preventDefault();
@@ -668,6 +849,11 @@
 
   window.addEventListener("keydown", function(event) {
     var targetTag = event.target && event.target.tagName ? event.target.tagName : "";
+    if (event.key === "Escape" && editorFullscreen) {
+      setEditorFullscreen(false);
+      event.preventDefault();
+      return;
+    }
     if (event.code === "Space" && !/INPUT|SELECT|TEXTAREA/.test(targetTag)) {
       spacePressed = true;
       event.preventDefault();
@@ -679,15 +865,20 @@
   window.addEventListener("blur", function() { spacePressed = false; });
 
   document.getElementById("autoSamples").onclick = function() { dispatchCommand("auto"); };
-  document.getElementById("undoSample").onclick = function() { dispatchCommand("undo"); };
+  var undoSample = document.getElementById("undoSample");
+  if (undoSample) undoSample.onclick = function() { dispatchCommand("undo"); };
   document.getElementById("clearSamples").onclick = function() { dispatchCommand("clear"); };
-  document.getElementById("stretchPreset").onchange = function() {
+  if (stretchPresetSelect) stretchPresetSelect.onchange = function() {
     if (!updatingControls) dispatchCommand("setStretch", this.value);
   };
-  document.getElementById("saturation").oninput = function() {
+  if (saturationInput) saturationInput.oninput = function() {
     if (updatingControls) return;
-    document.getElementById("saturationValue").textContent = Number(this.value).toFixed(1);
+    if (saturationValue) saturationValue.textContent = Number(this.value).toFixed(1);
     dispatchCommand("setSaturation", this.value);
+  };
+  if (autoStretch) autoStretch.onclick = function() {
+    var enabled = !!(state && state.stretch !== "No Stretch");
+    dispatchCommand("setStretch", enabled ? "No Stretch" : "40% Bg, 1.5 sigma");
   };
   document.getElementById("sampleSize").onchange = function() {
     if (!updatingControls) dispatchCommand("setSampleSize", this.value);
@@ -701,6 +892,27 @@
   if (qualityPresetSelect) qualityPresetSelect.onchange = function() {
     if (!updatingControls) dispatchCommand("setQualityPreset", this.value);
   };
+  if (editorInterpolation) editorInterpolation.onchange = function() {
+    if (!updatingControls) dispatchCommand("setInterpolation", this.value);
+  };
+  if (editorCorrection) editorCorrection.onchange = function() {
+    if (!updatingControls) dispatchCommand("setCorrection", this.value);
+  };
+  if (editorSmoothing) editorSmoothing.oninput = function() {
+    if (editorSmoothingValue) editorSmoothingValue.textContent = Number(this.value).toFixed(2);
+  };
+  if (editorSmoothing) editorSmoothing.onchange = function() {
+    if (!updatingControls) dispatchCommand("setSmoothing", this.value);
+  };
+  if (editorAddBackgroundLayer) editorAddBackgroundLayer.onchange = function() {
+    if (!updatingControls) dispatchCommand("setAddBackgroundLayer", this.checked);
+  };
+  if (processingToggle && processingBody) processingToggle.onclick = function() {
+    var open = processingBody.className.indexOf("hidden") >= 0;
+    processingBody.className = open ? "processing-body" : "processing-body hidden";
+    processingToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    processingToggle.textContent = open ? "처리 설정 숨기기" : "처리 설정 보기";
+  };
   document.getElementById("selectionOnly").onchange = function() {
     if (!updatingControls) dispatchCommand("setSelectionOnly", this.checked);
   };
@@ -712,6 +924,7 @@
   if (zoomIn) zoomIn.onclick = function() { zoomBy(1.2); };
   if (zoomFit) zoomFit.onclick = function() { setZoom(1, "fit"); };
   if (zoomActual) zoomActual.onclick = function() { setZoom(1, "custom"); };
+  if (toggleFullscreen) toggleFullscreen.onclick = function() { setEditorFullscreen(!editorFullscreen); };
   if (viewOriginal) viewOriginal.onclick = function() { setViewMode("original"); };
   if (viewResult) viewResult.onclick = function() {
     if (resultPixels) setViewMode("result");
@@ -745,8 +958,15 @@
 
   window.addEventListener("resize", function() {
     if (!state || !state.ready) return;
-    drawLocalEditor();
+    scheduleEditorRedraw();
   });
+
+  if (window.ResizeObserver && canvasWrap) {
+    var canvasResizeObserver = new ResizeObserver(function() {
+      scheduleEditorRedraw();
+    });
+    canvasResizeObserver.observe(canvasWrap);
+  }
 
   if (window.__adobe_cep__ && window.__adobe_cep__.addEventListener) {
     window.__adobe_cep__.addEventListener(STATE_EVENT, function(event) {
@@ -761,10 +981,13 @@
       var nextState = api.snapshot(EDITOR_MODE);
       if (!state || nextState.revision !== state.revision || nextState.ready !== state.ready ||
           nextState.resultBusy !== state.resultBusy || nextState.resultReady !== state.resultReady ||
+          nextState.resultAvailable !== state.resultAvailable ||
           nextState.resultCancelable !== state.resultCancelable ||
           nextState.resultOutdated !== state.resultOutdated ||
           nextState.resultMessage !== state.resultMessage ||
           nextState.resultPreviewFile !== state.resultPreviewFile ||
+          nextState.previewContextOutdated !== state.previewContextOutdated ||
+          nextState.previewContextMessage !== state.previewContextMessage ||
           nextState.resultAppliedRevision !== state.resultAppliedRevision) {
         applyState(nextState);
       }

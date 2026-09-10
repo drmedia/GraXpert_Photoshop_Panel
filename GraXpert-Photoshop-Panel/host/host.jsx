@@ -318,11 +318,13 @@ function GX_exportSamplePreview(previewPath, maskPath, maxWidth, maxHeight, scop
     var originalSelectionChannel = null;
     var skyMaskToken = "";
     var sourceLayerId = -1;
+    var sourceLayerVersion = -1;
     var analysisContext = "none:";
     var result = "";
 
     try {
         try { sourceLayerId = original.activeLayer.id; } catch (_) {}
+        sourceLayerVersion = GX_activeLayerVersion();
         analysisContext = GX_analysisContext(original, scope);
         var originalWidth = Math.round(original.width.as("px"));
         var originalHeight = Math.round(original.height.as("px"));
@@ -445,6 +447,11 @@ function GX_exportSamplePreview(previewPath, maskPath, maxWidth, maxHeight, scop
         try { app.activeDocument = original; } catch (_) {}
     }
 
+    if (result.indexOf("OK|") === 0) {
+        sourceLayerVersion = GX_activeLayerVersion();
+        result += "|V:" + sourceLayerVersion;
+    }
+
     return result;
 }
 
@@ -471,14 +478,66 @@ function GX_getActiveLayerInfo() {
     }
 }
 
-function GX_getActiveContextIdentity() {
+function GX_activeLayerVersion() {
+    try {
+        var reference = new ActionReference();
+        reference.putProperty(stringIDToTypeID("property"), stringIDToTypeID("layerVersion"));
+        reference.putEnumerated(
+            stringIDToTypeID("layer"), stringIDToTypeID("ordinal"), stringIDToTypeID("targetEnum")
+        );
+        var descriptor = executeActionGet(reference);
+        var key = stringIDToTypeID("layerVersion");
+        if (descriptor.hasKey(key)) return descriptor.getInteger(key);
+    } catch (_) {}
+    try {
+        var document = app.activeDocument;
+        var activeState = document.activeHistoryState;
+        var activeIndex = -1;
+        for (var historyIndex = 0; historyIndex < document.historyStates.length; historyIndex++) {
+            if (document.historyStates[historyIndex] === activeState) {
+                activeIndex = historyIndex;
+                break;
+            }
+        }
+        var signature = document.historyStates.length + ":" + activeIndex + ":" +
+            (activeState && activeState.name ? activeState.name : "");
+        var hash = 2166136261;
+        for (var characterIndex=0; characterIndex<signature.length; characterIndex++) {
+            hash = ((hash ^ signature.charCodeAt(characterIndex)) * 16777619) >>> 0;
+        }
+        return hash & 0x7FFFFFFF;
+    } catch (_) {
+        return -1;
+    }
+}
+
+function GX_quickAnalysisContext(document) {
+    if (GX_hasSelection(document)) {
+        try {
+            var bounds = document.selection.bounds;
+            function px(value) { return Math.round(value && value.as ? value.as("px") : Number(value)); }
+            return "selection:" + [px(bounds[0]), px(bounds[1]), px(bounds[2]), px(bounds[3])].join(",");
+        } catch (_) {
+            return "selection:";
+        }
+    }
+    if (GX_activeLayerHasMask()) return "layer-mask:";
+    return "none:";
+}
+
+function GX_getActiveContextIdentity(includeAnalysisSignature) {
     if (app.documents.length === 0) return "ERR|열려 있는 문서가 없습니다.";
     try {
         var document = app.activeDocument;
         var layerId = -1;
         try { layerId = document.activeLayer.id; } catch (_) {}
+        var layerVersion = GX_activeLayerVersion();
+        var analysisContext = includeAnalysisSignature
+            ? GX_analysisContext(document, "layer-auto")
+            : GX_quickAnalysisContext(document);
         return "OK|" + document.id + "|" + layerId + "|" +
-            Math.round(document.width.as("px")) + "|" + Math.round(document.height.as("px"));
+            Math.round(document.width.as("px")) + "|" + Math.round(document.height.as("px")) +
+            "|V:" + layerVersion + "|C:" + encodeURIComponent(analysisContext);
     } catch (e) {
         return "ERR|현재 작업 문맥 확인 실패: " + e.message + " (line " + e.line + ")";
     }
@@ -638,6 +697,7 @@ function GX_validateProcessingContext(documentId, layerId, width, height, analys
     var targetDocument = GX_findDocumentById(documentId);
     if (!targetDocument) return "ERR|결과를 생성한 Photoshop 문서를 찾을 수 없습니다.";
     var previousDocument = null;
+    var previousLayer = null;
     try {
         try { previousDocument = app.activeDocument; } catch (_) {}
         app.activeDocument = targetDocument;
@@ -645,11 +705,10 @@ function GX_validateProcessingContext(documentId, layerId, width, height, analys
             Math.round(targetDocument.height.as("px")) !== Number(height)) {
             return "ERR|결과를 생성한 뒤 문서 크기가 변경되었습니다.";
         }
-        var activeLayerId = -1;
-        try { activeLayerId = targetDocument.activeLayer.id; } catch (_) {}
-        if (Number(activeLayerId) !== Number(layerId)) {
-            return "ERR|결과를 생성한 뒤 현재 레이어가 변경되었습니다.";
-        }
+        var sourceLayer = GX_findLayerById(targetDocument, layerId);
+        if (!sourceLayer) return "ERR|결과를 생성한 원본 레이어를 찾을 수 없습니다.";
+        try { previousLayer = targetDocument.activeLayer; } catch (_) {}
+        targetDocument.activeLayer = sourceLayer;
         var currentContext = GX_analysisContext(targetDocument, scope || "layer-auto");
         if (String(currentContext) !== String(analysisContext || "")) {
             return "ERR|결과를 생성한 뒤 Photoshop 선택 영역 또는 레이어 마스크가 변경되었습니다.";
@@ -658,6 +717,7 @@ function GX_validateProcessingContext(documentId, layerId, width, height, analys
     } catch (e) {
         return "ERR|작업 문맥 확인 실패: " + e.message + " (line " + e.line + ")";
     } finally {
+        try { if (previousLayer) targetDocument.activeLayer = previousLayer; } catch (_) {}
         try { if (previousDocument) app.activeDocument = previousDocument; } catch (_) {}
     }
 }

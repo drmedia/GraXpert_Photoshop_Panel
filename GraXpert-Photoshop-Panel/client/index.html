@@ -7,11 +7,6 @@
 </head>
 <body>
 <div class="panel">
-  <div id="busyBanner" class="busy-banner hidden">
-    <div class="busy-title">GraXpert 처리 중</div>
-    <div class="busy-text">처리가 끝날 때까지 패널을 닫지 마세요.</div>
-  </div>
-
   <div class="header">
     <div>
       <div class="title">GraXpert</div>
@@ -27,7 +22,7 @@
     <div class="quick-help-header">
       <div>
         <div class="quick-help-title">GraXpert 도움말</div>
-        <div class="quick-help-subtitle">v0.9.1 · Photoshop CEP Panel</div>
+        <div class="quick-help-subtitle">v0.9.2 · Photoshop CEP Panel</div>
       </div>
       <button id="closeQuickHelp" type="button" title="도움말 닫기" aria-label="도움말 닫기">×</button>
     </div>
@@ -63,7 +58,7 @@
     <section class="quick-help-section">
       <h2>상세 설정</h2>
       <ul>
-        <li><strong>Smoothing:</strong> 배경 모델을 부드럽게 만드는 정도이며 기본값은 0.00입니다.</li>
+        <li><strong>Smoothing:</strong> 배경 모델을 부드럽게 만드는 정도이며 기본값은 0.50입니다.</li>
         <li><strong>Correction:</strong> 일반적인 광해는 Subtraction, 비네팅은 Division을 비교합니다.</li>
         <li><strong>Background Model:</strong> 선택하면 전체 해상도 모델을 숨김 레이어로 추가합니다.</li>
         <li><strong>Denoise Strength:</strong> 기본값 0.50에서 시작합니다.</li>
@@ -81,7 +76,7 @@
       </ul>
     </section>
 
-    <div class="quick-help-note">이번 v0.9.1 배포에서는 Background Extraction과 Noise Reduction을 제공합니다.</div>
+    <div class="quick-help-note">이번 v0.9.2 배포에서는 Background Extraction과 Noise Reduction을 제공합니다.</div>
   </div>
 
   <div id="tabs" class="tabs">
@@ -133,9 +128,9 @@
         <div class="spacer"></div>
         <div class="row between">
           <label class="section-title no-margin">Smoothing</label>
-          <span id="smoothingValue" class="big-value">0.00</span>
+          <span id="smoothingValue" class="big-value">0.50</span>
         </div>
-        <input id="smoothing" type="range" min="0" max="1" step="0.01" value="0.00">
+        <input id="smoothing" type="range" min="0" max="1" step="0.01" value="0.50">
         <div class="ticks"><span>0</span><span>0.5</span><span>1.0</span></div>
 
         <div class="spacer"></div>
@@ -185,7 +180,7 @@
 
         <div class="quality-preset-title">추가 품질 검사</div>
         <div class="segmented quality-preset">
-          <label title="패널 보강 검사를 생략하고 GraXpert Grid Tolerance만 적용합니다."><input type="radio" name="qualityPreset" value="off"><span>사용 안 함</span></label>
+          <label title="패널 보강 검사를 끄고 GraXpert Grid Tolerance만 적용합니다."><input type="radio" name="qualityPreset" value="off"><span>Grid만 적용</span></label>
           <label><input type="radio" name="qualityPreset" value="relaxed"><span>느슨함</span></label>
           <label><input type="radio" name="qualityPreset" value="standard" checked><span>표준</span></label>
           <label><input type="radio" name="qualityPreset" value="strict"><span>엄격함</span></label>
@@ -219,6 +214,7 @@
         <option>15% Bg, 3 sigma</option>
         <option>20% Bg, 3 sigma</option>
         <option>30% Bg, 2 sigma</option>
+        <option>40% Bg, 1.5 sigma</option>
       </select>
       <output id="previewSaturationValue" for="previewSaturation">1.0</output>
       <input id="previewSaturation" type="range" min="0" max="3" step="0.1" value="1">
@@ -348,23 +344,25 @@
     <div class="hint">PATH 미등록 시 GraXpert.exe 전체 경로를 입력하세요.</div>
   </div>
 
-  <button id="runBtn" class="run-btn">
-    <span>▶</span>
-    <span id="runText">GraXpert Gradient Removal 실행</span>
-  </button>
+  <div class="execution-area" aria-label="처리 실행 및 상태">
+    <button id="runBtn" class="run-btn">
+      <span>▶</span>
+      <span id="runText">GraXpert Gradient Removal 실행</span>
+    </button>
 
-  <div id="progressWrap" class="progress-wrap hidden">
-    <div class="progress"><div id="progressBar"></div></div>
-    <div class="progress-status-row">
-      <div id="status" class="status">준비 중</div>
-      <button id="cancelRunBtn" class="cancel-run hidden" type="button">처리 취소</button>
+    <div id="progressWrap" class="progress-wrap hidden" role="status" aria-live="polite">
+      <div class="progress"><div id="progressBar"></div></div>
+      <div class="progress-status-row">
+        <div id="status" class="status">준비 중</div>
+        <button id="cancelRunBtn" class="cancel-run hidden" type="button">처리 취소</button>
+      </div>
     </div>
+
+    <div id="message" class="message" aria-live="polite"></div>
   </div>
 
-  <div id="message" class="message"></div>
-
   <div id="footer" class="footer">
-    <div class="footer-version">GraXpert CLI 3.0.x · v0.9.1</div>
+    <div class="footer-version">GraXpert CLI 3.0.x · v0.9.2</div>
     <div>원본을 보존하려면 복제 문서나 복제 레이어에서 작업하는 것이 안전합니다.</div>
   </div>
 </div>

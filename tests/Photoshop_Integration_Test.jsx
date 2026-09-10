@@ -215,6 +215,15 @@
                 "Background Model이 Gradient 결과 아래와 원본 레이어 위에 배치되지 않았습니다.");
             assertTrue(target.layers[modelIndex].visible === false,
                 "Background Model 레이어가 숨김 상태가 아닙니다.");
+
+            target.activeLayer = upper;
+            var changedActiveLayerValidation = GX_validateProcessingContext(
+                info.documentId, info.sourceLayerId, 32, 32, info.analysisContext, "layer"
+            );
+            assertTrue(changedActiveLayerValidation === "OK",
+                "활성 레이어 변경 후 원본 레이어 ID 검증 실패: " + changedActiveLayerValidation);
+            assertTrue(target.activeLayer.id === upper.id,
+                "작업 문맥 검사 후 사용자의 활성 레이어가 복원되지 않았습니다.");
         });
 
         test("처리 시작 레이어가 삭제되면 결과 가져오기 중단", function () {
@@ -354,6 +363,37 @@
                 "32-bit 결과 레이어 이름이 올바르지 않습니다.");
         });
 
+        test("Gradient Editor 현재 레이어 및 지정 영역 서명", function () {
+            var target = makeRgb("GX_EDITOR_CONTEXT", BitsPerChannelType.SIXTEEN);
+            app.activeDocument = target;
+            var identity = GX_getActiveContextIdentity(true);
+            assertTrue(identity.indexOf("OK|" + target.id + "|") === 0,
+                "현재 문서/레이어 서명을 만들지 못했습니다: " + identity);
+            assertTrue(identity.indexOf("|V:") >= 0, "레이어 버전 서명이 없습니다: " + identity);
+            assertTrue(identity.indexOf("|C:none%3A") >= 0, "전체 레이어 영역 서명이 없습니다: " + identity);
+
+            var versionMatch = identity.match(/\|V:(-?\d+)/);
+            assertTrue(versionMatch && Number(versionMatch[1]) >= 0,
+                "Photoshop에서 레이어 버전을 읽지 못했습니다: " + identity);
+            var repeatedIdentity = GX_getActiveContextIdentity(true);
+            assertTrue(repeatedIdentity === identity,
+                "상태 확인만으로 레이어 서명이 변경되었습니다: " + identity + " -> " + repeatedIdentity);
+            var changedColor = new SolidColor();
+            changedColor.rgb.red = 24; changedColor.rgb.green = 42; changedColor.rgb.blue = 68;
+            target.selection.selectAll();
+            target.selection.fill(changedColor, ColorBlendMode.NORMAL, 100, false);
+            target.selection.deselect();
+            var changedIdentity = GX_getActiveContextIdentity(true);
+            assertTrue(changedIdentity !== identity,
+                "같은 레이어의 픽셀 변경을 감지하지 못했습니다: " + changedIdentity);
+
+            target.selection.select([[2, 2], [28, 2], [28, 28], [2, 28]]);
+            var selectedIdentity = GX_getActiveContextIdentity(true);
+            assertTrue(selectedIdentity.indexOf("|C:selection%3A") >= 0,
+                "Photoshop 선택 영역 서명이 없습니다: " + selectedIdentity);
+            target.selection.deselect();
+        });
+
         test("생성된 32-bit Neutralise 결과 TIFF Photoshop 호환", function () {
             assertTrue(floatResultTiff.exists && floatResultTiff.length > 0,
                 "Node 처리로 생성한 32-bit 결과 TIFF가 없습니다.");
@@ -414,6 +454,11 @@
             assertTrue(previewInfo.hasSelection, "지정 영역 마스크가 감지되지 않았습니다.");
             assertTrue(previewInfo.analysisContext.indexOf("layer-mask:") === 0,
                 "레이어 마스크 Preview 식별 정보가 없습니다.");
+            var previewVersion = previewResult.match(/\|V:(-?\d+)/);
+            var currentIdentity = GX_getActiveContextIdentity(true);
+            var currentVersion = currentIdentity.match(/\|V:(-?\d+)/);
+            assertTrue(previewVersion && currentVersion && previewVersion[1] === currentVersion[1],
+                "Preview 생성 직후 레이어 서명이 일치하지 않습니다: " + previewResult + " / " + currentIdentity);
             assertTrue(tempPreview.exists && tempMask.exists, "Preview 또는 mask 파일이 생성되지 않았습니다.");
             assertTrue(target.channels.length === originalChannelCount, "Preview 후 임시 채널이 남았습니다.");
             assertTrue(!GX_hasSelection(target), "Preview 후 임시 선택 영역이 남았습니다.");

@@ -34,7 +34,6 @@
   var exePath = document.getElementById("exePath");
   var runBtn = document.getElementById("runBtn");
   var cancelRunBtn = document.getElementById("cancelRunBtn");
-  var busyBanner = document.getElementById("busyBanner");
   var panelRoot = document.querySelector(".panel");
   var sampleCard = document.getElementById("sampleCard");
   var sampleEditor = document.getElementById("sampleEditor");
@@ -63,6 +62,10 @@
   var gradientResultMessage = "결과 미리보기 전";
   var gradientResultAppliedRevision = 0;
   var pendingOpenSampleEditor = false;
+  var sampleEditorContextCheckPending = false;
+  var samplePreviewContextCheckPending = false;
+  var samplePreviewContextOutdated = false;
+  var samplePreviewContextMessage = "";
   var neutralAutoReady = false;
   var neutralMaskStatus = document.getElementById("neutralMaskStatus");
   var neutralEstimateStatus = document.getElementById("neutralEstimateStatus");
@@ -104,6 +107,7 @@
   var lastSampleCommandId = { background:"", neutralize:"" };
   var lastSampleCommandFileStamp = { background:"", neutralize:"" };
   var activeGraXpertController = null;
+  var panelBusy = false;
   var GRAXPERT_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
 
   function editorConfig(editorMode) {
@@ -456,6 +460,7 @@
       if (mode === "background" && !settingsOpen) {
         refreshBackgroundScopeStatus();
         refreshGradientResultContextStatus();
+        refreshSamplePreviewContextStatus();
       }
       else if (mode === "denoise" && !settingsOpen) refreshDenoiseScopeStatus();
     }, 2000);
@@ -607,6 +612,8 @@
     pendingGradientAutoSamples = false;
     gradientGridDirty = false;
     pendingOpenSampleEditor = false;
+    samplePreviewContextOutdated = false;
+    samplePreviewContextMessage = "";
     if (sampleEditor) sampleEditor.className = "sample-editor hidden";
     if (sampleCanvasEmpty) sampleCanvasEmpty.className = "sample-canvas-empty";
     if (selectionStatus) selectionStatus.textContent = "Photoshop 선택 영역: 확인 전";
@@ -621,6 +628,68 @@
     sampleEditorRevision++;
     updateSampleCount();
     dispatchSampleEditorState();
+  }
+
+  function parseActiveContextIdentity(result) {
+    if (!result || result.indexOf("OK|") !== 0) return null;
+    var parts = result.split("|");
+    var identity = {
+      docId:parseInt(parts[1], 10),
+      layerId:parseInt(parts[2], 10),
+      width:parseInt(parts[3], 10),
+      height:parseInt(parts[4], 10),
+      layerVersion:-1,
+      analysisContext:""
+    };
+    for (var partIndex=5; partIndex<parts.length; partIndex++) {
+      if (/^V:-?\d+$/.test(parts[partIndex])) {
+        identity.layerVersion = parseInt(parts[partIndex].substring(2), 10);
+      } else if (parts[partIndex].indexOf("C:") === 0) {
+        try { identity.analysisContext = decodeURIComponent(parts[partIndex].substring(2)); }
+        catch (_) { identity.analysisContext = parts[partIndex].substring(2); }
+      }
+    }
+    return identity;
+  }
+
+  function quickAnalysisContext(context) {
+    var value = String(context || "none:");
+    if (value.indexOf("selection:") === 0) return value.split(",A:")[0];
+    if (value.indexOf("layer-mask:") === 0) return "layer-mask:";
+    return "none:";
+  }
+
+  function previewMatchesContext(preview, identity, fullAnalysis) {
+    if (!preview || !identity) return false;
+    if (identity.docId !== preview.docId || identity.layerId !== preview.sourceLayerId ||
+        identity.width !== preview.originalWidth || identity.height !== preview.originalHeight) return false;
+    if (identity.layerVersion >= 0 && preview.layerVersion >= 0 &&
+        identity.layerVersion !== preview.layerVersion) return false;
+    return fullAnalysis
+      ? identity.analysisContext === String(preview.analysisContext || "none:")
+      : quickAnalysisContext(identity.analysisContext) === quickAnalysisContext(preview.analysisContext);
+  }
+
+  function refreshSamplePreviewContextStatus() {
+    if (mode !== "background" || settingsOpen || !previewState ||
+        previewState.mode !== "background" || samplePreviewContextCheckPending ||
+        pendingOpenSampleEditor || gradientResultBusy || panelBusy) return;
+    samplePreviewContextCheckPending = true;
+    var checkedPreview = previewState;
+    evalPS("GX_getActiveContextIdentity(false)", function(contextError, contextResult) {
+      samplePreviewContextCheckPending = false;
+      if (previewState !== checkedPreview) return;
+      var identity = contextError ? null : parseActiveContextIdentity(contextResult);
+      var outdated = !previewMatchesContext(checkedPreview, identity, false);
+      var message = outdated
+        ? "현재 Photoshop 문서, 레이어 또는 지정 영역이 변경되었습니다. Gradient Editor 열기를 다시 눌러 Preview를 갱신하세요."
+        : "";
+      if (outdated === samplePreviewContextOutdated && message === samplePreviewContextMessage) return;
+      samplePreviewContextOutdated = outdated;
+      samplePreviewContextMessage = message;
+      sampleEditorRevision++;
+      dispatchSampleEditorState();
+    });
   }
 
   function fileUrl(filePath) {
@@ -713,6 +782,7 @@
     if (name === "15% Bg, 3 sigma") return { name: name, bg: 0.15, sigma: 3.0, enabled: true };
     if (name === "20% Bg, 3 sigma") return { name: name, bg: 0.20, sigma: 3.0, enabled: true };
     if (name === "30% Bg, 2 sigma") return { name: name, bg: 0.30, sigma: 2.0, enabled: true };
+    if (name === "40% Bg, 1.5 sigma") return { name: name, bg: 0.40, sigma: 1.5, enabled: true };
     return { name: "No Stretch", bg: 0, sigma: 0, enabled: false };
   }
 
@@ -995,7 +1065,7 @@
     config = config || getQualityConfig("standard");
     if (config.name === "off") {
       return {
-        status:"good", reason:"추가 품질 검사 사용 안 함", score:100,
+        status:"good", reason:"추가 검사 끔 · Grid Tolerance 적용", score:100,
         mean:0, deviation:0, starFraction:0, coreContrast:0,
         smoothIllumination:false, qualityBypassed:true
       };
@@ -1254,9 +1324,28 @@
       point.quality.reason = diffuse.reason;
       point.quality.score = Math.min(point.quality.score, diffuse.score);
     } else if (point.quality.status === "good" && diffuse.status === "warning") {
-      point.quality.status = "warning";
-      point.quality.reason = diffuse.reason;
-      point.quality.score = Math.min(point.quality.score, diffuse.score);
+      // A low-strength curved signal is common in the very illumination
+      // gradient that GraXpert must model. If the local sample is otherwise
+      // smooth (no star/core/variance warning), keep it as a background point
+      // and retain the diffuse result as diagnostic information. Strong
+      // diffuse structure remains excluded above.
+      if (point.quality.smoothIllumination) {
+        point.quality.diffuseAdvisory = diffuse.reason;
+        point.quality.reason = "부드러운 광해 배경";
+      } else {
+        point.quality.status = "warning";
+        point.quality.reason = diffuse.reason;
+        point.quality.score = Math.min(point.quality.score, diffuse.score);
+      }
+    }
+    if (point.manualApproved) {
+      point.quality.detectedStatus = point.quality.status;
+      point.quality.detectedReason = point.quality.reason;
+      point.quality.manualApproved = true;
+      point.quality.status = "good";
+      point.quality.reason = point.quality.detectedStatus === "good"
+        ? "수동 승인 · " + (point.quality.detectedReason || "배경 후보")
+        : "수동 승인 · 자동 검사: " + point.quality.detectedReason;
     }
     return point;
   }
@@ -1575,7 +1664,8 @@
     if (!previewState || !previewImage || !point) return false;
     point = {
       x: Math.max(0, Math.min(previewState.originalWidth - 1, Math.round(Number(point.x) || 0))),
-      y: Math.max(0, Math.min(previewState.originalHeight - 1, Math.round(Number(point.y) || 0)))
+      y: Math.max(0, Math.min(previewState.originalHeight - 1, Math.round(Number(point.y) || 0))),
+      manualApproved: true
     };
     var radius = Math.max(2, Math.min(200,
       parseInt(document.getElementById("sampleSize").value, 10) || 25));
@@ -1617,7 +1707,8 @@
       parseInt(document.getElementById("sampleSize").value, 10) || 25));
     var nextPoint = {
       x:Math.max(0, Math.min(previewState.originalWidth - 1, Math.round(Number(point.x) || 0))),
-      y:Math.max(0, Math.min(previewState.originalHeight - 1, Math.round(Number(point.y) || 0)))
+      y:Math.max(0, Math.min(previewState.originalHeight - 1, Math.round(Number(point.y) || 0))),
+      manualApproved:true
     };
     function reject(message) {
       sampleEditorNotice = message;
@@ -1729,17 +1820,8 @@
     });
   }
 
-  function openLargeSampleEditor() {
-    clearMsg();
-    var editorMode = mode === "neutralize" ? "neutralize" : "background";
+  function openSampleEditorWindow(editorMode) {
     var config = editorConfig(editorMode);
-    if (!previewState || !previewImage || previewState.mode !== editorMode) {
-      if (pendingOpenSampleEditor) return;
-      pendingOpenSampleEditor = true;
-      if (editorMode === "neutralize") document.getElementById("neutralAnalyze").onclick();
-      else document.getElementById("preparePreview").onclick();
-      return;
-    }
     var openedAt = Date.now();
     if (openedAt - lastSampleEditorOpenAt[editorMode] < 700) return;
     lastSampleEditorOpenAt[editorMode] = openedAt;
@@ -1769,6 +1851,53 @@
       showError((editorMode === "neutralize" ? "Neutralise" : "Gradient") +
         " Editor 창 열기 실패: " + windowError.message);
     }
+  }
+
+  function prepareCurrentLayerAndOpenEditor(editorMode) {
+    if (pendingOpenSampleEditor) return;
+    pendingOpenSampleEditor = true;
+    if (editorMode === "neutralize") document.getElementById("neutralAnalyze").onclick();
+    else document.getElementById("preparePreview").onclick();
+  }
+
+  function openLargeSampleEditor() {
+    clearMsg();
+    var editorMode = mode === "neutralize" ? "neutralize" : "background";
+    if (!previewState || !previewImage || previewState.mode !== editorMode) {
+      prepareCurrentLayerAndOpenEditor(editorMode);
+      return;
+    }
+    if (editorMode !== "background") {
+      openSampleEditorWindow(editorMode);
+      return;
+    }
+    if (sampleEditorContextCheckPending) return;
+    sampleEditorContextCheckPending = true;
+    var checkedPreview = previewState;
+    evalPS("GX_getActiveContextIdentity(true)", function(contextError, contextResult) {
+      sampleEditorContextCheckPending = false;
+      if (mode !== "background") return;
+      if (previewState !== checkedPreview) {
+        openLargeSampleEditor();
+        return;
+      }
+      if (contextError || !contextResult || contextResult.indexOf("OK|") !== 0) {
+        showError("Gradient Editor 처리 레이어 확인 실패:\n" +
+          (contextError || contextResult || "알 수 없는 오류"));
+        return;
+      }
+      var currentIdentity = parseActiveContextIdentity(contextResult);
+      var previewMatchesCurrentLayer = previewMatchesContext(checkedPreview, currentIdentity, true);
+      if (!previewMatchesCurrentLayer) {
+        resetSamplePreview();
+        showOk("현재 레이어가 변경되어 Gradient Preview를 새로 생성합니다.");
+        prepareCurrentLayerAndOpenEditor(editorMode);
+        return;
+      }
+      samplePreviewContextOutdated = false;
+      samplePreviewContextMessage = "";
+      openSampleEditorWindow(editorMode);
+    });
   }
 
   document.getElementById("openSampleWindow").onmousedown = function(event) {
@@ -1815,15 +1944,65 @@
     dispatchSampleEditorState();
   };
 
+  function applyQualityPresetChange(value) {
+    if (value) setSelectedValue("qualityPreset", value);
+    if (!previewState) {
+      sampleEditorRevision++;
+      dispatchSampleEditorState();
+      return;
+    }
+
+    // Quality presets participate in automatic candidate selection. Reclassifying
+    // the old grid in place can make excluded points appear to jump to a different
+    // part of the image, especially when switching to Grid-only mode. Rebuild the
+    // automatic grid with the new criteria, while preserving user-approved points.
+    if (mode === "background" && samplePoints.length) {
+      var manualPoints = [];
+      var hasAutomaticPoints = false;
+      for (var pointIndex=0; pointIndex<samplePoints.length; pointIndex++) {
+        if (samplePoints[pointIndex].manualApproved) manualPoints.push(samplePoints[pointIndex]);
+        else hasAutomaticPoints = true;
+      }
+      if (hasAutomaticPoints) {
+        var regenerated = generateAutomaticSamplePoints({
+          selectionOnly: document.getElementById("selectionOnly").checked
+        });
+        if (regenerated) {
+          var automaticPoints = samplePoints.slice(0);
+          for (var manualIndex=0; manualIndex<manualPoints.length; manualIndex++) {
+            var manualPoint = applyPointQuality(manualPoints[manualIndex]);
+            for (var automaticIndex=automaticPoints.length - 1; automaticIndex>=0; automaticIndex--) {
+              var dx = automaticPoints[automaticIndex].x - manualPoint.x;
+              var dy = automaticPoints[automaticIndex].y - manualPoint.y;
+              if (Math.sqrt(dx * dx + dy * dy) < 3) automaticPoints.splice(automaticIndex, 1);
+            }
+            automaticPoints.push(manualPoint);
+          }
+          samplePoints = automaticPoints;
+          gradientGridDirty = false;
+          sampleEditorNotice = "품질 기준 변경 · 자동 Point 다시 생성 · 수동 Point " +
+            manualPoints.length + "개 유지";
+          drawSampleEditor();
+          showOk((selected("qualityPreset") === "off"
+            ? "추가 품질 검사를 끄고 Grid Tolerance만 적용했습니다."
+            : "새 품질 기준으로 자동 Point를 다시 생성했습니다.") +
+            (manualPoints.length ? "\n수동 승인 Point " + manualPoints.length + "개를 유지했습니다." : ""));
+          return;
+        }
+      }
+    }
+
+    refreshPointQualities();
+    drawSampleEditor();
+    showOk(selected("qualityPreset") === "off"
+      ? "추가 품질 검사를 끄고 Grid Tolerance만 적용했습니다."
+      : "품질 분석 강도를 변경하고 기존 수동 Point를 다시 분석했습니다.");
+  }
+
   var qualityPresetInputs = document.querySelectorAll('input[name="qualityPreset"]');
     for (var qpi=0; qpi<qualityPresetInputs.length; qpi++) {
     qualityPresetInputs[qpi].onchange = function() {
-      if (!previewState) return;
-      refreshPointQualities();
-      drawSampleEditor();
-      showOk(selected("qualityPreset") === "off"
-        ? "추가 품질 검사를 사용하지 않습니다. GraXpert Grid Tolerance만 적용합니다."
-        : "품질 분석 강도를 변경하고 기존 Point를 다시 분석했습니다.");
+      applyQualityPresetChange(selected("qualityPreset"));
     };
   }
 
@@ -2323,17 +2502,31 @@
       dispatchSampleEditorState();
     },
     setQualityPreset: function(value) {
-      setSelectedValue("qualityPreset", value);
-      if (previewState) {
-        refreshPointQualities();
-        drawSampleEditor();
-        showOk(value === "off"
-          ? "추가 품질 검사를 사용하지 않습니다. GraXpert Grid Tolerance만 적용합니다."
-          : "품질 분석 강도를 변경하고 기존 Point를 다시 분석했습니다.");
-      } else {
-        sampleEditorRevision++;
-        dispatchSampleEditorState();
-      }
+      applyQualityPresetChange(value);
+    },
+    setInterpolation: function(value) {
+      var nextValue = /^(RBF|Splines|Kriging)$/.test(String(value || "")) ? String(value) : "RBF";
+      if (gradientInterpolation) gradientInterpolation.value = nextValue;
+      updateMethodUi();
+      sampleEditorRevision++;
+      dispatchSampleEditorState();
+    },
+    setCorrection: function(value) {
+      setSelectedValue("correction", value === "Division" ? "Division" : "Subtraction");
+      sampleEditorRevision++;
+      dispatchSampleEditorState();
+    },
+    setSmoothing: function(value) {
+      var nextValue = Math.max(0, Math.min(1, Number(value) || 0));
+      smoothing.value = nextValue.toFixed(2);
+      document.getElementById("smoothingValue").textContent = nextValue.toFixed(2);
+      sampleEditorRevision++;
+      dispatchSampleEditorState();
+    },
+    setAddBackgroundLayer: function(value) {
+      document.getElementById("addBackgroundLayer").checked = !!value;
+      sampleEditorRevision++;
+      dispatchSampleEditorState();
     },
     previewGradient: function() { createGradientResultPreview(); },
     applyGradient: function() { applyGradientResultPreview(); },
@@ -2370,8 +2563,9 @@
     var resultSettingsOutdated = !!(gradientResultJob && gradientResultJob.signature !== resultSignature);
     var resultContextInvalid = !!(gradientResultJob && !gradientResultContextValid);
     var resultOutdated = resultSettingsOutdated || resultContextInvalid;
+    var resultAvailable = !!(gradientResultJob && gradientResultJob.previewFile);
     var resultReady = !!(gradientResultJob && !gradientResultBusy && !resultOutdated &&
-      gradientResultJob.previewFile && gradientResultJob.importFile);
+      gradientResultJob.previewFile && (gradientResultJob.importFile || gradientResultJob.localPreview));
     var editorCount = requestedMode === "neutralize"
       ? document.getElementById("neutralSampleCount") : sampleCount;
     return {
@@ -2385,25 +2579,35 @@
       quality: matchingPreview && qualityReport ? qualityReport.textContent : "분석 전",
       pointEditMessage: sampleEditorNotice,
       stretch: document.getElementById("stretchPreset").value,
-      saturation: normalizeSaturation(document.getElementById("previewSaturation").value),
+      saturation: requestedMode === "background"
+        ? 1 : normalizeSaturation(document.getElementById("previewSaturation").value),
       sampleSize: parseInt(document.getElementById("sampleSize").value, 10) || 25,
       pointsPerRow: normalizePointsPerRow(document.getElementById("pointsPerRow").value),
       gridTolerance: normalizeGridTolerance(document.getElementById("gridTolerance").value),
       qualityPreset: selected("qualityPreset") || "standard",
+      interpolation: currentGradientMethod() === "AI"
+        ? (gradientInterpolation ? gradientInterpolation.value : "RBF") : currentGradientMethod(),
+      correction: selected("correction") || "Subtraction",
+      smoothing: Number(smoothing.value),
+      addBackgroundLayer: !!document.getElementById("addBackgroundLayer").checked,
       regionSource: matchingPreview ? previewRegionSource(previewState) : "none",
       gridDirty: requestedMode === "background" && matchingPreview && gradientGridDirty,
+      previewContextOutdated: requestedMode === "background" && matchingPreview && samplePreviewContextOutdated,
+      previewContextMessage: requestedMode === "background" && matchingPreview
+        ? samplePreviewContextMessage : "",
       resultBusy: requestedMode === "background" && gradientResultBusy,
       resultCancelable: requestedMode === "background" && gradientResultBusy && !!activeGraXpertController,
+      resultAvailable: requestedMode === "background" && resultAvailable,
       resultReady: requestedMode === "background" && resultReady,
       resultOutdated: requestedMode === "background" && resultOutdated,
       resultMessage: requestedMode === "background"
         ? (resultContextInvalid
-          ? "결과를 생성한 문서, 현재 레이어 또는 이미지 크기가 변경되었습니다."
+          ? "결과를 생성한 문서, 원본 레이어 또는 이미지 크기가 변경되었습니다."
           : resultSettingsOutdated
-            ? "포인트 또는 설정이 변경되었습니다. 결과를 다시 계산하세요."
+            ? "포인트 또는 설정이 변경되었습니다. 이전 결과를 참고해 편집한 뒤 다시 계산하세요."
             : gradientResultMessage)
         : "",
-      resultPreviewFile: requestedMode === "background" && resultReady ? gradientResultJob.previewFile : "",
+      resultPreviewFile: requestedMode === "background" && resultAvailable ? gradientResultJob.previewFile : "",
       resultAppliedRevision: requestedMode === "background" ? gradientResultAppliedRevision : 0,
       selectionOnly: requestedMode === "neutralize"
         ? !!(matchingPreview && previewState.hasSelection)
@@ -2440,8 +2644,13 @@
       return;
     }
     if (mode !== requestedMode || !previewState || !previewImage || previewState.mode !== requestedMode) return;
+    if (requestedMode === "background" && samplePreviewContextOutdated &&
+        /^(add|move|remove|undo|clear|auto|setSampleSize|setPointsPerRow|setGridTolerance|setQualityPreset|setSelectionOnly|previewGradient|applyGradient)$/.test(command.action)) {
+      dispatchSampleEditorState();
+      return;
+    }
     if (requestedMode === "background" && gradientResultBusy &&
-        /^(add|move|remove|undo|clear|auto|setSampleSize|setPointsPerRow|setGridTolerance|setQualityPreset|setSelectionOnly)$/.test(command.action)) {
+        /^(add|move|remove|undo|clear|auto|setSampleSize|setPointsPerRow|setGridTolerance|setQualityPreset|setSelectionOnly|setInterpolation|setCorrection|setSmoothing|setAddBackgroundLayer)$/.test(command.action)) {
       return;
     }
     if (command.action === "add") {
@@ -2475,6 +2684,14 @@
       window.GX_SAMPLE_EDITOR_BRIDGE.setGridTolerance(command.value);
     } else if (command.action === "setQualityPreset") {
       window.GX_SAMPLE_EDITOR_BRIDGE.setQualityPreset(command.value);
+    } else if (command.action === "setInterpolation") {
+      window.GX_SAMPLE_EDITOR_BRIDGE.setInterpolation(command.value);
+    } else if (command.action === "setCorrection") {
+      window.GX_SAMPLE_EDITOR_BRIDGE.setCorrection(command.value);
+    } else if (command.action === "setSmoothing") {
+      window.GX_SAMPLE_EDITOR_BRIDGE.setSmoothing(command.value);
+    } else if (command.action === "setAddBackgroundLayer") {
+      window.GX_SAMPLE_EDITOR_BRIDGE.setAddBackgroundLayer(command.value);
     } else if (command.action === "setSelectionOnly") {
       window.GX_SAMPLE_EDITOR_BRIDGE.setSelectionOnly(command.value);
       dispatchSampleEditorState();
@@ -2579,10 +2796,14 @@
             ? decodeURIComponent(parts[8].substring(2)) : "",
           docName: parts[9] && parts[9].indexOf("N:") === 0
             ? decodeURIComponent(parts[9].substring(2)) : "",
+          layerVersion: parts[10] && /^V:-?\d+$/.test(parts[10])
+            ? parseInt(parts[10].substring(2), 10) : -1,
           mode: mode,
           scope: scope,
           gradientInputFile: gradientInputFile
         };
+        samplePreviewContextOutdated = false;
+        samplePreviewContextMessage = "";
         samplePoints = [];
 
         loadLocalImage(previewFile, function(previewErr, loadedPreview) {
@@ -2649,6 +2870,9 @@
               });
             } else if (pendingOpenSampleEditor) {
               pendingOpenSampleEditor = false;
+              // The modeless editor may already be alive with an older state file.
+              // Publish the completed Preview before activating/opening the window.
+              dispatchSampleEditorState();
               openLargeSampleEditor();
             } else {
               showOk("Sample Preview가 준비되었습니다.");
@@ -2742,6 +2966,7 @@
   }
 
   function setBusy(busy, label) {
+    panelBusy = !!busy;
     runBtn.disabled = busy;
 
     if (label) {
@@ -2755,10 +2980,6 @@
 
     document.getElementById("progressWrap").className =
       busy ? "progress-wrap" : "progress-wrap hidden";
-
-    if (busyBanner) {
-      busyBanner.className = busy ? "busy-banner" : "busy-banner hidden";
-    }
 
     if (panelRoot) {
       panelRoot.className = busy ? "panel panel-busy" : "panel";
@@ -4185,16 +4406,13 @@
   function refreshGradientResultContextStatus() {
     if (!gradientResultJob || gradientResultBusy || mode !== "background") return;
     var checkedJob = gradientResultJob;
-    evalPS("GX_getActiveContextIdentity()", function(error, result) {
+    evalPS(
+      'GX_validateProcessingContext(' + checkedJob.docId + ',' + checkedJob.sourceLayerId + ',' +
+        checkedJob.width + ',' + checkedJob.height + ',"' + escJs(checkedJob.analysisContext) +
+        '","layer-auto")',
+      function(error, result) {
       if (gradientResultJob !== checkedJob) return;
-      var valid = false;
-      if (!error && result && result.indexOf("OK|") === 0) {
-        var parts = result.split("|");
-        valid = Number(parts[1]) === Number(checkedJob.docId) &&
-          Number(parts[2]) === Number(checkedJob.sourceLayerId) &&
-          Number(parts[3]) === Number(checkedJob.width) &&
-          Number(parts[4]) === Number(checkedJob.height);
-      }
+      var valid = !error && result === "OK";
       if (gradientResultContextValid !== valid) {
         gradientResultContextValid = valid;
         if (valid) gradientResultMessage = "전체 해상도 결과가 준비되었습니다. 확인 후 Photoshop에 적용하세요.";
@@ -4276,7 +4494,284 @@
     );
   }
 
+  function thinPlateKernel(distanceSquared) {
+    if (distanceSquared <= 1e-14) return 0;
+    return 0.5 * distanceSquared * Math.log(distanceSquared);
+  }
+
+  function solveLocalRbf(samples, smoothingValue) {
+    var count = samples.length;
+    var size = count + 3;
+    var matrix = [];
+    var rhsColumns = 3;
+    var rowLength = size + rhsColumns;
+    var regularization = Math.max(1e-7, Math.min(1, Number(smoothingValue) || 0) * 0.02);
+    var row, column;
+    for (row=0; row<size; row++) matrix[row] = new Float64Array(rowLength);
+    for (row=0; row<count; row++) {
+      for (column=0; column<count; column++) {
+        var dx = samples[row].x - samples[column].x;
+        var dy = samples[row].y - samples[column].y;
+        matrix[row][column] = thinPlateKernel(dx * dx + dy * dy);
+      }
+      matrix[row][row] += regularization;
+      matrix[row][count] = 1;
+      matrix[row][count + 1] = samples[row].x;
+      matrix[row][count + 2] = samples[row].y;
+      matrix[count][row] = 1;
+      matrix[count + 1][row] = samples[row].x;
+      matrix[count + 2][row] = samples[row].y;
+      for (column=0; column<rhsColumns; column++) {
+        matrix[row][size + column] = samples[row].rgb[column];
+      }
+    }
+
+    for (column=0; column<size; column++) {
+      var pivot = column;
+      var pivotMagnitude = Math.abs(matrix[pivot][column]);
+      for (row=column + 1; row<size; row++) {
+        var magnitude = Math.abs(matrix[row][column]);
+        if (magnitude > pivotMagnitude) {
+          pivot = row;
+          pivotMagnitude = magnitude;
+        }
+      }
+      if (pivotMagnitude < 1e-12) throw new Error("빠른 RBF 모델을 계산할 수 없습니다. 포인트 위치를 조정하세요.");
+      if (pivot !== column) {
+        var swap = matrix[column];
+        matrix[column] = matrix[pivot];
+        matrix[pivot] = swap;
+      }
+      var pivotValue = matrix[column][column];
+      for (var normalizeAt=column; normalizeAt<rowLength; normalizeAt++) {
+        matrix[column][normalizeAt] /= pivotValue;
+      }
+      for (row=0; row<size; row++) {
+        if (row === column) continue;
+        var factor = matrix[row][column];
+        if (Math.abs(factor) < 1e-15) continue;
+        for (var eliminateAt=column; eliminateAt<rowLength; eliminateAt++) {
+          matrix[row][eliminateAt] -= factor * matrix[column][eliminateAt];
+        }
+      }
+    }
+
+    var coefficients = [new Float64Array(size), new Float64Array(size), new Float64Array(size)];
+    for (row=0; row<size; row++) {
+      for (column=0; column<rhsColumns; column++) {
+        coefficients[column][row] = matrix[row][size + column];
+      }
+    }
+    return coefficients;
+  }
+
+  function localSampleRgb(point, radius, imageData, imageState) {
+    var centerX = Math.round(point.x / Math.max(1, imageState.originalWidth - 1) *
+      Math.max(1, imageData.width - 1));
+    var centerY = Math.round(point.y / Math.max(1, imageState.originalHeight - 1) *
+      Math.max(1, imageData.height - 1));
+    var radiusX = Math.max(1, Math.round(radius / Math.max(1, imageState.originalWidth) * imageData.width));
+    var radiusY = Math.max(1, Math.round(radius / Math.max(1, imageState.originalHeight) * imageData.height));
+    var channels = [[], [], []];
+    for (var y=Math.max(0, centerY - radiusY); y<=Math.min(imageData.height - 1, centerY + radiusY); y++) {
+      for (var x=Math.max(0, centerX - radiusX); x<=Math.min(imageData.width - 1, centerX + radiusX); x++) {
+        var dx = (x - centerX) / radiusX;
+        var dy = (y - centerY) / radiusY;
+        if (dx * dx + dy * dy > 1) continue;
+        var at = (y * imageData.width + x) * 4;
+        channels[0].push(imageData.data[at]);
+        channels[1].push(imageData.data[at + 1]);
+        channels[2].push(imageData.data[at + 2]);
+      }
+    }
+    return [medianNumberList(channels[0]), medianNumberList(channels[1]), medianNumberList(channels[2])];
+  }
+
+  function evaluateLocalRbf(samples, coefficients, x, y, channel) {
+    var count = samples.length;
+    var value = coefficients[channel][count] + coefficients[channel][count + 1] * x +
+      coefficients[channel][count + 2] * y;
+    for (var index=0; index<count; index++) {
+      var dx = x - samples[index].x;
+      var dy = y - samples[index].y;
+      value += coefficients[channel][index] * thinPlateKernel(dx * dx + dy * dy);
+    }
+    return value;
+  }
+
+  function evaluateLocalIdw(samples, x, y, channel, smoothingValue) {
+    var weighted = 0;
+    var weights = 0;
+    var softening = 1e-6 + Math.max(0, Number(smoothingValue) || 0) * 0.002;
+    for (var index=0; index<samples.length; index++) {
+      var dx = x - samples[index].x;
+      var dy = y - samples[index].y;
+      var distanceSquared = dx * dx + dy * dy;
+      if (distanceSquared < 1e-12) return samples[index].rgb[channel];
+      var weight = 1 / (distanceSquared + softening);
+      weighted += samples[index].rgb[channel] * weight;
+      weights += weight;
+    }
+    return weights ? weighted / weights : 0;
+  }
+
+  function createLocalGradientPreviewPixels(imageData, imageState, points, sampleRadius,
+      smoothingValue, correction) {
+    if (!imageData || !imageState || !points || points.length < 3) {
+      throw new Error("빠른 미리보기에는 최소 3개의 Sample Point가 필요합니다.");
+    }
+    var samples = [];
+    var targets = [[], [], []];
+    for (var index=0; index<points.length; index++) {
+      var rgb = localSampleRgb(points[index], sampleRadius, imageData, imageState);
+      var sample = {
+        x: points[index].x / Math.max(1, imageState.originalWidth - 1),
+        y: points[index].y / Math.max(1, imageState.originalHeight - 1),
+        rgb: rgb
+      };
+      samples.push(sample);
+      for (var channel=0; channel<3; channel++) targets[channel].push(rgb[channel]);
+    }
+    var target = [medianNumberList(targets[0]), medianNumberList(targets[1]), medianNumberList(targets[2])];
+    var coefficients = null;
+    try { coefficients = solveLocalRbf(samples, smoothingValue); }
+    catch (_) { coefficients = null; }
+    var gridWidth = Math.min(96, imageData.width);
+    var gridHeight = Math.min(96, imageData.height);
+    var model = [new Float64Array(gridWidth * gridHeight), new Float64Array(gridWidth * gridHeight),
+      new Float64Array(gridWidth * gridHeight)];
+    var gx, gy;
+    for (gy=0; gy<gridHeight; gy++) {
+      var normalizedY = gy / Math.max(1, gridHeight - 1);
+      for (gx=0; gx<gridWidth; gx++) {
+        var normalizedX = gx / Math.max(1, gridWidth - 1);
+        var gridAt = gy * gridWidth + gx;
+        for (channel=0; channel<3; channel++) {
+          model[channel][gridAt] = coefficients
+            ? evaluateLocalRbf(samples, coefficients, normalizedX, normalizedY, channel)
+            : evaluateLocalIdw(samples, normalizedX, normalizedY, channel, smoothingValue);
+        }
+      }
+    }
+
+    var output = new Uint8ClampedArray(imageData.data.length);
+    var division = String(correction || "Subtraction").toLowerCase() === "division";
+    for (var py=0; py<imageData.height; py++) {
+      var modelY = py / Math.max(1, imageData.height - 1) * Math.max(1, gridHeight - 1);
+      var y0 = Math.floor(modelY), y1 = Math.min(gridHeight - 1, y0 + 1), fy = modelY - y0;
+      for (var px=0; px<imageData.width; px++) {
+        var modelX = px / Math.max(1, imageData.width - 1) * Math.max(1, gridWidth - 1);
+        var x0 = Math.floor(modelX), x1 = Math.min(gridWidth - 1, x0 + 1), fx = modelX - x0;
+        var outputAt = (py * imageData.width + px) * 4;
+        for (channel=0; channel<3; channel++) {
+          var top = model[channel][y0 * gridWidth + x0] * (1 - fx) + model[channel][y0 * gridWidth + x1] * fx;
+          var bottom = model[channel][y1 * gridWidth + x0] * (1 - fx) + model[channel][y1 * gridWidth + x1] * fx;
+          var background = top * (1 - fy) + bottom * fy;
+          var source = imageData.data[outputAt + channel];
+          var corrected;
+          if (division) {
+            var scale = target[channel] / Math.max(1, background);
+            corrected = source * Math.max(0.25, Math.min(4, scale));
+          } else {
+            corrected = source - background + target[channel];
+          }
+          output[outputAt + channel] = Math.max(0, Math.min(255, Math.round(corrected)));
+        }
+        output[outputAt + 3] = imageData.data[outputAt + 3];
+      }
+    }
+    return {
+      width:imageData.width, height:imageData.height, data:output,
+      sampleCount:samples.length, interpolation:coefficients ? "RBF" : "IDW"
+    };
+  }
+
+  function writePreviewPixelsPng(imageData, destinationPath) {
+    var canvas = document.createElement("canvas");
+    canvas.width = imageData.width;
+    canvas.height = imageData.height;
+    var context = canvas.getContext("2d");
+    var canvasData = context.createImageData(imageData.width, imageData.height);
+    canvasData.data.set(imageData.data);
+    context.putImageData(canvasData, 0, 0);
+    var encoded = canvas.toDataURL("image/png").split(",")[1];
+    fs.writeFileSync(destinationPath, Buffer.from(encoded, "base64"));
+  }
+
   function createGradientResultPreview() {
+    clearMsg();
+    var requestError = validateGradientResultRequest();
+    if (requestError) {
+      gradientResultMessage = requestError;
+      showError(requestError);
+      dispatchSampleEditorState();
+      return;
+    }
+    if (gradientResultBusy) return;
+    if (!fs || !os || !path) {
+      gradientResultMessage = "Node.js 모듈을 사용할 수 없습니다.";
+      dispatchSampleEditorState();
+      return;
+    }
+
+    cleanupGradientResultJob(gradientResultJob);
+    gradientResultJob = null;
+    gradientResultContextValid = true;
+    gradientResultBusy = true;
+    gradientResultMessage = "패널에서 빠른 RBF 미리보기를 계산하고 있습니다…";
+    setGradientEditorBusy(true);
+    dispatchSampleEditorState();
+
+    setTimeout(function() {
+      var stamp = Date.now();
+      var workdir = path.join(os.tmpdir(), "GraXpert_Photoshop");
+      var outputFile = path.join(workdir, "editor_fast_preview_" + stamp + ".png");
+      try {
+        if (!fs.existsSync(workdir)) fs.mkdirSync(workdir, { recursive:true });
+        var points = usableSamplePoints(true);
+        var sampleRadius = Math.max(2, Math.min(200,
+          parseInt(document.getElementById("sampleSize").value, 10) || 25));
+        var localResult = createLocalGradientPreviewPixels(
+          previewPixels, previewState, points, sampleRadius, Number(smoothing.value),
+          selected("correction") || "Subtraction"
+        );
+        writePreviewPixelsPng(localResult, outputFile);
+        gradientResultJob = {
+          signature:gradientResultSignature(),
+          localPreview:true,
+          importFile:"",
+          previewFile:outputFile,
+          output:"",
+          backgroundOutput:"",
+          addBackgroundLayer:!!document.getElementById("addBackgroundLayer").checked,
+          conversionFile:"",
+          preferencesFile:"",
+          input:"",
+          docId:previewState.docId,
+          docName:previewState.docName || "",
+          sourceLayerId:previewState.sourceLayerId,
+          width:previewState.originalWidth,
+          height:previewState.originalHeight,
+          analysisContext:previewState.analysisContext,
+          method:currentGradientMethod(),
+          localInterpolation:localResult.interpolation,
+          stamp:stamp
+        };
+        gradientResultMessage = "빠른 " + localResult.interpolation +
+          " 미리보기입니다. Photoshop 적용 시 GraXpert가 전체 해상도로 최종 계산합니다.";
+        showOk(gradientResultMessage);
+      } catch (localPreviewError) {
+        safeDelete(outputFile);
+        gradientResultMessage = "빠른 미리보기 생성 실패: " + localPreviewError.message;
+        showError(gradientResultMessage);
+      }
+      gradientResultBusy = false;
+      setGradientEditorBusy(false);
+      dispatchSampleEditorState();
+    }, 20);
+  }
+
+  function createGradientFullResolutionResult(onReady) {
     clearMsg();
     var requestError = validateGradientResultRequest();
     if (requestError) {
@@ -4436,6 +4931,7 @@
           gradientResultMessage = "전체 해상도 결과가 준비되었습니다. 확인 후 Photoshop에 적용하세요.";
           showOk(gradientResultMessage);
           dispatchSampleEditorState();
+          if (typeof onReady === "function") setTimeout(onReady, 0);
         }, { editorOnly:true });
         dispatchSampleEditorState();
       }
@@ -4447,6 +4943,14 @@
     if (gradientResultJob.signature !== gradientResultSignature()) {
       gradientResultMessage = "포인트 또는 설정이 변경되었습니다. 결과를 다시 계산하세요.";
       dispatchSampleEditorState();
+      return;
+    }
+    if (gradientResultJob.localPreview) {
+      gradientResultMessage = "GraXpert가 Photoshop 적용용 전체 해상도 결과를 계산합니다…";
+      dispatchSampleEditorState();
+      createGradientFullResolutionResult(function() {
+        applyGradientResultPreview();
+      });
       return;
     }
     var job = gradientResultJob;
@@ -4539,6 +5043,10 @@
     var gradientMethod = currentGradientMethod();
 
     if (mode === "background" && gradientMethod !== "AI") {
+      if (samplePreviewContextOutdated) {
+        showError("현재 레이어 또는 지정 영역이 Preview 생성 시점과 다릅니다. Gradient Editor를 다시 열어 Preview를 갱신하세요.");
+        return;
+      }
       if (!previewState) {
         showError("먼저 포인트 자동 생성으로 Preview를 준비하세요.");
         return;
@@ -4739,6 +5247,9 @@
 
               function finishResultImport(modelWarning, modelAdded) {
                 if (modelWarning) backgroundWarning = modelWarning;
+                // An AI result becomes Photoshop's active layer. Any Sample Point Preview
+                // captured before this run now refers to a different source layer.
+                if (mode === "background" && gradientMethod === "AI") resetSamplePreview();
                 setBusy(false);
                 setProgress(100, "완료");
                 document.getElementById("progressWrap").className = "progress-wrap";
@@ -4809,6 +5320,7 @@
       analyzeSamplePoint: analyzeSamplePoint,
       analyzeDiffuseStructure: analyzeDiffuseStructure,
       applyPointQuality: applyPointQuality,
+      createLocalGradientPreviewPixels: createLocalGradientPreviewPixels,
       getQualityConfig: getQualityConfig,
       normalizePointsPerRow: normalizePointsPerRow,
       normalizeGridTolerance: normalizeGridTolerance,

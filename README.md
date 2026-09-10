@@ -2,7 +2,7 @@
 
 GraXpert stand-alone CLI를 Adobe Photoshop에서 실행하고, 처리 결과를 원본 문서의 새 레이어로 가져오는 Windows용 CEP 패널입니다.
 
-현재 버전: **v0.9.1** · 지원 CLI: **GraXpert CLI 3.0.x**
+현재 버전: **v0.9.2** · 지원 CLI: **GraXpert CLI 3.0.x**
 
 > 원본 픽셀 레이어는 직접 변경하지 않습니다. 결과는 처리 시작 시 선택한 레이어 바로 위에 새 레이어로 추가됩니다.
 
@@ -14,8 +14,9 @@ GraXpert stand-alone CLI를 Adobe Photoshop에서 실행하고, 처리 결과를
 - RBF, Splines, Kriging 기반 Sample Point 방식
 - Photoshop 선택 영역 또는 현재 레이어 마스크를 Sample Point 분석 범위로 사용
 - 독립 Gradient Editor에서 Point 추가, 삭제 및 이동
+- Gradient Editor 전체 화면 전환과 Esc 원래 크기 복원
 - 자동 Grid 생성과 Point 품질 검사
-- Preview Stretch와 Saturation을 이용한 표시용 미리보기
+- 원본과 결과에 동일한 기준을 적용하는 Auto Stretch 미리보기
 - 전체 해상도 원본/결과 비교 후 Photoshop 적용
 - Background Model을 선택적으로 숨김 레이어로 추가
 
@@ -31,7 +32,7 @@ Background Extraction에서 지정 영역은 **Sample Point 분석에만 사용*
 
 ### 이번 배포에서 제외된 기능
 
-Color Calibration 코드는 후속 개발을 위해 유지하지만, v0.9.1 사용자 화면에서는 숨겨져 있습니다.
+Color Calibration 코드는 후속 개발을 위해 유지하지만, v0.9.2 사용자 화면에서는 숨겨져 있습니다.
 
 ## 요구 사항
 

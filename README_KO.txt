@@ -1,4 +1,4 @@
-GraXpert Photoshop Panel v0.9.1
+GraXpert Photoshop Panel v0.9.2
 Windows Photoshop / CEP
 ==============================================
 
@@ -13,7 +13,7 @@ GraXpert stand-alone CLI를 Photoshop의 Legacy Extension 패널에서 실행하
 ---------
 상단 설정 아이콘을 누르면 GPU acceleration과 GraXpert 실행 파일 설정만
 표시됩니다. 다시 누르면 기존 작업 화면으로 돌아갑니다.
-이번 v0.9.1 배포에서는 Background Extraction과 Noise Reduction 탭을 제공합니다.
+이번 v0.9.2 배포에서는 Background Extraction과 Noise Reduction 탭을 제공합니다.
 Color Calibration은 후속 배포를 위해 코드만 유지하며 화면에서는 숨겨져 있습니다.
 
 1. Gradient Removal

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <ExtensionManifest Version="7.0"
     ExtensionBundleId="com.drmedia.graxpertps"
-    ExtensionBundleVersion="0.9.1"
+    ExtensionBundleVersion="0.9.2"
     ExtensionBundleName="GraXpert Photoshop Panel"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 
@@ -76,7 +76,7 @@
                     <Geometry>
                         <Size><Width>1100</Width><Height>800</Height></Size>
                         <MinSize><Width>650</Width><Height>480</Height></MinSize>
-                        <MaxSize><Width>1800</Width><Height>1400</Height></MaxSize>
+                        <MaxSize><Width>7680</Width><Height>4320</Height></MaxSize>
                     </Geometry>
                 </UI>
             </DispatchInfo>

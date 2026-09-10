@@ -3,7 +3,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul
 
 echo ============================================================
-echo GraXpert Photoshop Panel Uninstaller v0.9.1
+echo GraXpert Photoshop Panel Uninstaller v0.9.2
 echo ============================================================
 echo.
 
