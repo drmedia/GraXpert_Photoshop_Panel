@@ -522,6 +522,7 @@ function testLayerMaskFallbackCapture() {
 }
 
 function testHtmlAndInstaller() {
+  var githubReadme = fs.readFileSync(path.join(root, "README.md"), "utf8");
   var html = fs.readFileSync(path.join(panelDir, "client", "index.html"), "utf8");
   var editorHtml = fs.readFileSync(path.join(panelDir, "client", "gradient-editor-window.html"), "utf8");
   var neutralEditorHtml = fs.readFileSync(path.join(panelDir, "client", "neutral-editor-window.html"), "utf8");
@@ -543,6 +544,9 @@ function testHtmlAndInstaller() {
   var integrationRunner = fs.readFileSync(path.join(root, "tests", "Run_Photoshop_Integration.ps1"), "utf8");
   var integrationScript = fs.readFileSync(path.join(root, "tests", "Photoshop_Integration_Test.jsx"), "utf8");
   assert.match(installer, /v0\.9\.1/);
+  assert.match(githubReadme, /^# GraXpert Photoshop Panel/m);
+  assert.match(githubReadme, /현재 버전: \*\*v0\.9\.1\*\* · 지원 CLI: \*\*GraXpert CLI 3\.0\.x\*\*/);
+  assert.match(githubReadme, /\[한국어 사용자 설명서\]\(USER_GUIDE_KO\.txt\)/);
   assert.match(uninstaller, /v0\.9\.1/);
   assert.match(manifest, /ExtensionBundleVersion="0\.9\.1"/);
   assert.match(html, /id="exePath"[^>]*value="GraXpert\.exe"/);
