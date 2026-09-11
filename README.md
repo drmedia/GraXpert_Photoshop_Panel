@@ -131,6 +131,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\Run_Photoshop_Integr
 
 통합 테스트는 임시 Photoshop 문서를 생성하여 TIFF 왕복, 결과 레이어 배치, 선택 영역과 레이어 마스크 처리를 확인합니다.
 
+## 배포 파일 만들기
+
+Windows 배포 ZIP과 SHA-256 체크섬을 생성합니다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Build_Release.ps1
+```
+
+기본 빌드는 버전 표기와 필수 파일을 검사하고 Node 자동 테스트를 실행한 뒤 `dist` 폴더에 다음 파일을 생성합니다.
+
+```text
+GraXpert-Photoshop-Panel-v0.9.2-win.zip
+GraXpert-Photoshop-Panel-v0.9.2-win.zip.sha256
+```
+
+실제 Photoshop 통합 테스트까지 실행하려면 다음 옵션을 사용합니다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Build_Release.ps1 -RunPhotoshopIntegration
+```
+
+테스트를 의도적으로 생략할 때만 `-SkipTests`를 사용하세요. 배포 ZIP에는 GraXpert 실행 파일과 로컬 테스트 이미지가 포함되지 않습니다.
+
 ## 제거
 
 Photoshop을 완전히 종료한 뒤 `Uninstall_Windows.bat`를 실행합니다.
