@@ -12,6 +12,18 @@ GraXpert stand-alone CLI를 Adobe Photoshop에서 실행하고, 처리 결과를
 
 이 저장소와 배포 패키지에는 GraXpert 실행 파일이 포함되지 않습니다. 사용자는 GraXpert를 별도로 설치해야 하며, GraXpert와 Adobe Photoshop의 사용 조건 및 라이선스를 각각 준수해야 합니다. GraXpert와 Adobe Photoshop을 비롯한 제품명 및 상표는 각 권리자에게 귀속됩니다.
 
+## 화면
+
+### 메인 패널
+
+| Background Extraction | Noise Reduction |
+|:---:|:---:|
+| <img src="docs/images/background-extraction-panel.png" alt="Background Extraction 패널" width="320"> | <img src="docs/images/noise-reduction-panel.png" alt="Noise Reduction 패널" width="320"> |
+
+### Gradient Editor
+
+![GraXpert Gradient Editor](docs/images/gradient-editor.png)
+
 ## 주요 기능
 
 ### Background Extraction
@@ -87,8 +99,8 @@ GraXpert의 기본 설치 위치는 다음과 같습니다.
 1. `Sample Point` 방식을 선택합니다.
 2. `자동 생성` 또는 `Gradient Editor 열기`를 누릅니다.
 3. 천체 구조 위의 Point를 삭제하거나 실제 배경 위치로 이동합니다.
-4. 결과 미리보기를 생성해 원본과 비교합니다.
-5. 결과가 적절하면 Photoshop에 적용합니다.
+4. `빠른 미리보기 생성`으로 축소 Preview 결과를 원본과 비교합니다.
+5. 결과가 적절하면 `Photoshop에 적용`을 눌러 전체 해상도 결과를 생성합니다.
 
 ### Noise Reduction
 

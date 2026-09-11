@@ -40,7 +40,8 @@ Color Calibration은 후속 배포를 위해 코드만 유지하며 화면에서
    - GPU ON/OFF
    - Noise Reduction 결과를 처리 시작 시 선택했던 레이어 바로 위에 배치
 
-3. Background Neutralisation
+3. Background Neutralisation (후속 개발용, 현재 UI에서 숨김)
+   - 아래 항목은 코드에 유지된 개발 기능 설명이며 v0.9.2 사용자 화면에서는 실행할 수 없음
    - 메인 화면은 결과 적용, 분석/Editor, 보정 강도, 결과 생성 순서로 단순화
    - 결과 적용: 현재 레이어 / 지정 영역
    - 분석 영역: Photoshop 선택 영역 우선, 없으면 현재 레이어 마스크 사용
@@ -65,10 +66,11 @@ Color Calibration은 후속 배포를 위해 코드만 유지하며 화면에서
    - Background Extraction 결과는 항상 현재 레이어 전체에 적용하며 결과 마스크를 만들지 않음
    - Noise Reduction 결과 마스크는 선택 영역을 우선 사용하고, 없으면 현재 레이어 마스크를 복사
    - 각 탭의 상태 카드에서 처리 대상과 영역 사용 상태를 실시간 표시
-   - Color Calibration은 현재 레이어/지정 영역 결과 방식을 사용자가 선택
+   - 숨겨진 Color Calibration 개발 기능은 현재 레이어/지정 영역 결과 방식을 사용자가 선택
 
 5. 결과 처리
-   - Gradient/Denoise/Neutralisation 결과를 처리한 현재 레이어 바로 위에 삽입
+   - Gradient/Denoise 결과를 처리한 현재 레이어 바로 위에 삽입
+   - 숨겨진 Neutralisation 개발 기능도 같은 레이어 배치 규칙을 사용
    - 처리 시작 문서 ID가 사라지면 동일 이름 문서로 대체하지 않고 안전하게 중단
    - GraXpert 실행 중 진행 상태 옆의 "처리 취소" 버튼으로 프로세스 중단 가능
    - stdout/stderr를 스트리밍으로 소비해 10MB 출력 버퍼 초과 오류 방지
@@ -80,7 +82,7 @@ Color Calibration은 후속 배포를 위해 코드만 유지하며 화면에서
    - TIFF IFD, 태그 데이터, Strip 위치를 실제 파일 범위와 대조한 뒤 메모리 할당
    - 손상된 TIFF가 대용량 버퍼 할당이나 파일 밖 읽기를 유발하지 않도록 차단
 
-7. Gradient Editor / Neutralise Editor
+7. Gradient Editor / Neutralise Editor(후자는 현재 숨김)
    - Gradient 방식은 AI 자동 / 배경 포인트로 구분
    - 배경 포인트 선택 시 Gradient 방식 카드 안에 상태, 포인트 자동 생성, Gradient Editor만 표시
    - 보간 방식은 Gradient 세부 설정으로 이동하고 밀도·품질 기준·Radius는 Gradient Editor에서 조정
@@ -93,14 +95,15 @@ Color Calibration은 후속 배포를 위해 코드만 유지하며 화면에서
    - Gradient Point는 GraXpert Gradient Editor에서 편집
    - Neutralise Reference Point는 GraXpert Neutralise Editor에서 별도로 편집
    - 두 Editor는 서로 다른 상태 파일과 CEP 이벤트 채널을 사용해 Point 상태가 섞이지 않음
-   - Preview Stretch와 Saturation은 각 Modeless Editor에서만 표시
+   - Gradient Editor는 켜기/끄기 방식의 Auto Stretch만 제공하고 Preview 채도는 1.0으로 고정
+   - 숨겨진 후속 개발 기능인 Neutralise Editor의 표시 설정은 별도 상태로 유지
    - Photoshop 확장 메뉴에는 GraXpert만 표시하며 Editor는 메인 패널 버튼으로만 실행
    - Photoshop 선택 영역이 있으면 처리 범위와 별개로 자동 Point를 선택 내부에 생성
    - Point 생성 영역과 Gradient 결과 적용 영역은 포인트 상태에 마우스를 올려 확인
    - 좌클릭으로 추가, 우클릭으로 Sample 사각 영역 안의 Point 삭제
    - 기존 Point 사각형을 드래그해 이동하고 놓은 위치에서 품질을 다시 판정
    - 이동 위치가 이미지·선택 영역 경계를 벗어나거나 다른 Point와 겹치면 기존 위치 유지
-   - 마지막 삭제 / 전체 삭제
+   - 우클릭 Point 삭제 / 전체 삭제
    - 선택한 밀도에 따른 자동 Grid 생성
    - Photoshop 선택 영역이 있으면 선택 내부로 자동 Grid 제한
    - 선택 영역을 임시 Alpha Channel로 보존해 Preview mask에 정확히 전달
@@ -108,20 +111,21 @@ Color Calibration은 후속 배포를 위해 코드만 유지하며 화면에서
    - CEP 패널 표시 크기와 Canvas 내부 크기를 일치시켜 클릭 좌표 보정
    - 패널 창 크기 변경 시 Preview와 Point 위치 자동 재배치
    - Gradient Editor 버튼으로 독립 편집 창 실행
-   - Gradient Editor와 메인 패널의 Point, 행당 포인트, Grid Tolerance, 추가 품질 검사, Stretch, Saturation, Sample Size 및 선택 제한 실시간 동기화
+   - Gradient Editor와 메인 패널의 Point, 행당 포인트, Grid Tolerance, 추가 품질 검사, Sample Size 및 선택 제한 실시간 동기화
+   - Auto Stretch 상태는 Gradient Editor의 Preview 표시에만 사용
    - Preview 생성 당시 문서 ID, 현재 레이어 ID, 처리 범위와 분석 영역 경계를 저장
    - 실행 전에 Preview 작업 문맥을 다시 검사하고 변경되었으면 재분석 요청
    - Gradient/Neutralise 탭 또는 Neutralise 결과 적용 범위를 바꾸면 기존 Preview와 Point 초기화
    - 화면 맞춤/Preview 100%/최대 400% 확대, 휠 확대·축소와 Space+드래그 이동
    - 좌클릭 Point 추가와 우클릭 Point 삭제
-   - Gradient Editor에서 전체 해상도 결과를 임시 생성한 뒤 원본/결과 전환 확인
+   - Gradient Editor에서 축소 Preview와 Point를 이용한 빠른 RBF 근사 결과를 생성해 원본/결과 전환 확인
    - 원본/결과 비교 시 `포인트 표시`를 꺼서 Sample Point 사각형 숨김
-   - 결과 Preview TIFF는 Photoshop 임시 문서를 열지 않고 직접 축소 변환하여 화면 깜빡임 방지
-   - 결과 생성 중에는 Gradient Editor 버튼 Spinner와 이미지 중앙 진행 오버레이 표시
-   - 확인한 전체 해상도 결과 파일을 다시 계산하지 않고 Photoshop에 적용
-   - Photoshop 적용이 성공하면 Gradient Editor 창을 자동으로 닫음
-   - 포인트나 처리 설정이 바뀌면 기존 결과를 무효화하고 다시 계산 요청
-   - Editor를 닫거나 취소하면 적용하지 않은 전체 해상도 임시 결과 정리
+   - 빠른 미리보기는 GraXpert 실행과 전체 해상도 TIFF 내보내기 없이 Editor 내부에서 계산
+   - 빠른 미리보기 생성 중에는 버튼 Spinner와 이미지 중앙 진행 오버레이 표시
+   - `Photoshop에 적용`할 때 GraXpert CLI로 선택한 보간 방식의 전체 해상도 결과 생성
+   - Photoshop 적용과 결과 레이어 추가가 성공하면 Gradient Editor 창을 자동으로 닫음
+   - 포인트나 처리 설정이 바뀌면 기존 빠른 미리보기를 무효화하고 다시 계산 요청
+   - Editor를 닫거나 취소하면 적용하지 않은 Preview 상태와 임시 파일 정리
    - 한 번의 버튼 클릭으로 큰 창 활성화 및 헤더의 '창 닫기' 지원
    - Modeless 네이티브 제목 표시줄에 Editor 이름 표시
    - 기본 창 너비에서는 상단 도구 모음을 한 줄로 맞추고 불필요한 가로 스크롤 제거
@@ -138,15 +142,15 @@ Color Calibration은 후속 배포를 위해 코드만 유지하며 화면에서
    - 적합한 중심점은 유지해 Grid 균일성 보존
    - Sample Size로 계산한 영역을 5×5로 검사해 전체가 Selection 내부인 후보만 사용
    - 자동 Grid 완료 후 재배치 수, 부드러운 광해 허용 수와 사용할 수 없는 셀 수 표시
-   - 품질 분석 강도: 사용 안 함(GraXpert Grid Tolerance만) / 느슨함 / 표준 / 엄격함
-   - 사용 안 함에서는 자동 Grid의 Tolerance 통과 Point와 사용자가 직접 추가한 Point를 별도 구조 검사 없이 사용
+   - 품질 분석 강도: Grid만 적용(GraXpert Grid Tolerance만) / 느슨함 / 표준 / 엄격함
+   - Grid만 적용에서는 자동 Grid의 Tolerance 통과 Point와 사용자가 직접 추가한 Point를 별도 구조 검사 없이 사용
    - 프리셋 변경 시 기존 Point 색상·점수·제외 상태 실시간 재분석
    - 적합·주의·제외 수, 평균 점수 및 판정 사유별 요약 표시
-   - GraXpert 표시 프리셋: No Stretch / 10% / 15% / 20% / 30% Background
-   - Sample Preview Stretch 기본값: No Stretch
-   - Median/MAD 기반 shadow clipping 및 MTF Preview Stretch
-   - Preview Saturation: 0.0~3.0, 기본값 1.0 (Stretch 이후 미리보기에만 적용)
-   - Stretch는 Sample Preview 표시에만 적용하고 품질 분석 픽셀은 선형 상태 유지
+   - Auto Stretch 기본값: 꺼짐(No Stretch)
+   - Auto Stretch를 켜면 광해 확인용 40% Background, 1.5 sigma MTF 표시 적용
+   - 원본 휘도에서 계산한 하나의 Stretch 값을 RGB에 공통 적용해 색상 Gradient 유지
+   - Gradient Editor Preview 채도는 1.0으로 고정
+   - Auto Stretch는 Preview 표시에만 적용하고 품질 분석 픽셀과 실제 선형 결과는 변경하지 않음
    - Gradient/Denoise 실행은 항상 선형 결과 레이어만 생성
    - 실제 Stretched 결과 생성 기능과 전용 Editor는 StarNet2 Photoshop Panel로 이동
    - Background Extraction은 선택 영역/레이어 마스크를 Sample Point 분석에만 사용하고 결과는 전체에 적용
@@ -217,8 +221,11 @@ FITS 모델은 가져오기 전에 TIFF로 변환되며, 가져오기가 완료�
 문서 메모리와 저장 용량이 증가합니다.
 
 
-Background Neutralisation
--------------------------
+Background Neutralisation (후속 개발용, 현재 UI에서 숨김)
+-------------------------------------------------------
+이 절은 코드에 유지된 개발 기능을 설명합니다. v0.9.2 사용자 화면에서는
+Color Calibration 탭과 Neutralise Editor를 열거나 실행할 수 없습니다.
+
 1. Stretch 이전의 선형 레이어를 활성화합니다.
 2. Photoshop 선택 영역을 만들거나 현재 레이어에 영역 마스크를 준비합니다.
 3. Neutralise 탭에서 "배경 분석"을 실행합니다.
@@ -252,7 +259,7 @@ Background Neutralisation
 Photoshop 원본 문서
 -> Sample Preview 및 Photoshop Selection mask 생성
 -> 원본 이미지 좌표로 Background Point 편집
--> 선택한 GraXpert MTF Stretch로 Sample Preview만 표시
+-> 필요하면 Gradient Editor의 Auto Stretch로 Sample Preview만 표시
 -> GraXpert preferences JSON 생성
 -> 작업용 복제 문서
 -> Gradient/Denoise는 RGB 16-bit TIFF, Neutralise는 원본과 같은 16/32-bit TIFF 입력 생성
@@ -273,7 +280,7 @@ RBF/Splines/Kriging preferences 주요 형식:
   "interpol_type_option": "RBF",
   "background_points": [[325, 210, 1], [870, 195, 1]],
   "sample_size": 25,
-  "smoothing_option": 0.3,
+  "smoothing_option": 0.5,
   "corr_type": "Subtraction",
   "RBF_kernel": "thin_plate",
   "spline_order": 3
@@ -292,7 +299,7 @@ mask_*, preferences_*, stretch_*, neutral_* 파일을 정리합니다.
 Gradient Removal 시작값:
 - Gradient 방식: AI 자동 또는 수동 Background 지정이 필요한 경우 Sample Point
 - Sample Point 보간 방식: RBF (필요한 경우 Splines/Kriging 선택)
-- Smoothing: 0.00 (GraXpert 기본값)
+- Smoothing: 0.50 (패널 기본값)
 - Correction: Subtraction
 - 처리 대상: 현재 레이어만
 - GPU: ON
@@ -382,7 +389,7 @@ tests\Photoshop_Integration_Result.txt에 저장됩니다.
 - 광해 기울기·은하수 확산 구조·지상 경계가 포함된 대표 장면의 자동 Point 회귀 검사
 - 선택 마스크 내부의 좁은 구멍과 복잡한 경계를 Sample 영역이 침범하지 않는지 검사
 - 선택 영역 밖의 밝은 지상 전경이 하늘 Point 품질 통계에 포함되지 않는지 검사
-- Preview MTF Stretch와 Saturation 표시
+- Gradient Editor Auto Stretch의 RGB 공통 적용과 Preview 채도 1.0 고정
 - 처리 시작 시 선택한 레이어 ID 보존과 결과 바로 위 배치
 - Sample Point RGB 중앙값 기반 16/32-bit Background Neutralisation
 - RGB 편향 중화 후 부드러운 광해 기울기와 ICC 프로파일이 유지되는지 수치 검사
@@ -407,6 +414,6 @@ tests\Photoshop_Integration_Result.txt에 저장됩니다.
 
 문서 안내
 ---------
-이 파일이 현재 버전의 기준 문서입니다. README_v1_*.txt 파일은 이전
-버전의 변경 과정과 문제 해결 기록을 보존한 역사 문서이며, 현재 동작은
-이 README_KO.txt를 우선합니다.
+README.md는 공개 저장소의 개요와 설치 방법을, USER_GUIDE_KO.txt는 일반 사용자를
+위한 단계별 사용법을 제공합니다. 이 README_KO.txt는 현재 구현과 내부 처리 구조를
+포함한 상세 기준 문서입니다.
